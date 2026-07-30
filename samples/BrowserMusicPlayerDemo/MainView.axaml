@@ -1,0 +1,91 @@
+<UserControl
+    x:Class="BrowserMusicPlayerDemo.MainView"
+    x:DataType="local:MainViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:BrowserMusicPlayerDemo">
+  <Grid Background="#F4F6F7">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <Grid Margin="24" MaxWidth="720" HorizontalAlignment="Center"
+            RowDefinitions="Auto,24,Auto,24,Auto">
+        <StackPanel HorizontalAlignment="Center" Spacing="8">
+          <Image Width="140" Height="32" Stretch="Uniform"
+                 Source="avares://BrowserMusicPlayerDemo/Assets/naudio-logo.png" />
+          <StackPanel HorizontalAlignment="Center" Spacing="3">
+            <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                       FontSize="22" FontWeight="SemiBold" Foreground="#172126"
+                       Text="Browser Music Player" />
+            <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                       FontSize="13" Foreground="#536168"
+                       Text="mp3 / ogg / wav through NAudio AudioWorklet" />
+          </StackPanel>
+        </StackPanel>
+
+        <Border Grid.Row="2" Padding="24" Background="White" BorderBrush="#D8DEE1"
+                BorderThickness="1" CornerRadius="6">
+          <Grid RowDefinitions="Auto,16,Auto,20,Auto,8,Auto,24,Auto,8,Auto,28,Auto,24,Auto,28,Auto"
+                ColumnDefinitions="*,Auto">
+
+            <Grid Grid.ColumnSpan="2" ColumnDefinitions="*,*" ColumnSpacing="10">
+              <Button Command="{Binding AddFilesCommand}" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center" Content="Add Files" />
+              <Button Grid.Column="1" Command="{Binding AddFolderCommand}" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center" Content="Add Folder" />
+            </Grid>
+
+            <Border Grid.Row="2" Grid.ColumnSpan="2" MinHeight="140" MaxHeight="220"
+                    Background="#F9FBFB" BorderBrush="#D8DEE1" BorderThickness="1" CornerRadius="4">
+              <Panel>
+                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                           TextAlignment="Center" TextWrapping="Wrap" Foreground="#8A969B"
+                           IsVisible="{Binding !HasTracks}">
+                  Playlist is empty. Add mp3, ogg or wav files.
+                </TextBlock>
+                <ListBox ItemsSource="{Binding Playlist}" SelectedItem="{Binding SelectedTrack}"
+                         Background="Transparent">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate DataType="local:TrackItem">
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Panel>
+            </Border>
+
+            <TextBlock Grid.Row="4" FontWeight="SemiBold" Foreground="#263238"
+                       Text="Position" />
+            <TextBlock Grid.Row="4" Grid.Column="1" Foreground="#536168"
+                       Text="{Binding PositionText}" />
+            <Slider Grid.Row="6" Grid.ColumnSpan="2" Minimum="0"
+                    Maximum="{Binding DurationSeconds}" Value="{Binding SeekSeconds}" />
+
+            <Grid Grid.Row="8" Grid.ColumnSpan="2" ColumnDefinitions="*,*,*" ColumnSpacing="10">
+              <Button Command="{Binding PlayCommand}" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center" Content="Play" />
+              <Button Grid.Column="1" Command="{Binding PauseCommand}" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center" Content="Pause" />
+              <Button Grid.Column="2" Command="{Binding StopCommand}" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center" Content="Stop" />
+            </Grid>
+
+            <TextBlock Grid.Row="10" FontWeight="SemiBold" Foreground="#263238"
+                       Text="Volume" />
+            <TextBlock Grid.Row="10" Grid.Column="1" Foreground="#536168"
+                       Text="{Binding Volume, StringFormat={}{0:P0}}" />
+            <Slider Grid.Row="12" Grid.ColumnSpan="2" Minimum="0" Maximum="1"
+                    TickFrequency="0.05" Value="{Binding Volume}" />
+
+            <Border Grid.Row="14" Grid.ColumnSpan="2" Padding="12,9" Background="#EAF4F1"
+                    BorderBrush="#B9D7CE" BorderThickness="1" CornerRadius="4">
+              <TextBlock Foreground="#174F43" Text="{Binding Status}" TextWrapping="Wrap" />
+            </Border>
+          </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="4" HorizontalAlignment="Center" TextAlignment="Center"
+                   TextWrapping="Wrap" FontSize="12" Foreground="#68767C"
+                   Text="Folder picking needs a Chromium browser with the File System Access API" />
+      </Grid>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

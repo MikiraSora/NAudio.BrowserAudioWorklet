@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Plain net9.0: these tests exercise the platform-agnostic player state
+         machine against a fake IAudioWorkletBridge, so they run anywhere and
+         never touch a browser or JavaScript runtime. The real [JSImport] bridge
+         lives on the production library's net9.0-browser leg and is covered by
+         manual/integration verification, not here. -->
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <EnableNUnitRunner>true</EnableNUnitRunner>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NUnit" Version="4.5.1" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.1.0" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.2.1" />
+    <PackageReference Include="NAudio.Core" Version="$(NAudioCorePackageVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference the net9.0 leg explicitly: the production library multi-targets
+         net9.0;net9.0-browser, and this test project is net9.0-only. -->
+    <ProjectReference Include="..\..\src\NAudio.Avalonia.BrowserAudioWorklet\NAudio.Avalonia.BrowserAudioWorklet.csproj" />
+  </ItemGroup>
+
+</Project>

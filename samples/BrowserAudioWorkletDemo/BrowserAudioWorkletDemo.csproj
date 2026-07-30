@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-browser</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+
+    <!-- Demo app: not a shipping NuGet package. Opt out of the repo-wide package
+         defaults so it stays a plain runnable sample (mirrors the other samples,
+         which carry their own Version and skip packaging concerns). -->
+    <IsPackable>false</IsPackable>
+    <IsPublishable>true</IsPublishable>
+    <Version>0.1.0</Version>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Strong-naming the repo libraries is required, but a WASM demo Exe has no
+         reason to be signed and the browser SDK doesn't expect it. -->
+    <SignAssembly>false</SignAssembly>
+    <!-- Demo code favours brevity over the library's strict analysis gate. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-none</AnalysisLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="$(AvaloniaPackageVersion)" />
+    <PackageReference Include="Avalonia.Browser" Version="$(AvaloniaPackageVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaPackageVersion)" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="$(AvaloniaPackageVersion)" />
+    <PackageReference Include="NAudio.Core" Version="$(NAudioCorePackageVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The library under test. Its AudioWorklet JavaScript rides along as a
+         static web asset and is published to
+         wwwroot/_content/NAudio.Avalonia.BrowserAudioWorklet/ automatically. -->
+    <ProjectReference Include="..\..\src\NAudio.Avalonia.BrowserAudioWorklet\NAudio.Avalonia.BrowserAudioWorklet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="..\..\naudio-logo.png" Link="Assets\naudio-logo.png" />
+  </ItemGroup>
+
+</Project>

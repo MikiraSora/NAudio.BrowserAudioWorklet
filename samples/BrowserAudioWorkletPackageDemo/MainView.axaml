@@ -1,0 +1,62 @@
+<UserControl
+    x:Class="BrowserAudioWorkletPackageDemo.MainView"
+    x:DataType="local:MainViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:BrowserAudioWorkletPackageDemo">
+  <Grid Background="#F4F6F7">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <Grid Margin="24" MaxWidth="720" HorizontalAlignment="Center"
+            RowDefinitions="Auto,24,Auto,24,Auto">
+        <StackPanel HorizontalAlignment="Center" Spacing="8">
+          <Image Width="140" Height="32" Stretch="Uniform"
+                 Source="avares://BrowserAudioWorkletPackageDemo/Assets/naudio-logo.png" />
+          <StackPanel HorizontalAlignment="Center" Spacing="3">
+            <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                       FontSize="22" FontWeight="SemiBold" Foreground="#172126"
+                       Text="Browser AudioWorklet" />
+            <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                       FontSize="13" Foreground="#536168"
+                       Text="NAudio output from the NuGet package" />
+          </StackPanel>
+        </StackPanel>
+
+        <Border Grid.Row="2" Padding="24" Background="White" BorderBrush="#D8DEE1"
+                BorderThickness="1" CornerRadius="6">
+          <Grid RowDefinitions="Auto,28,Auto,24,Auto,28,Auto" ColumnDefinitions="*,Auto">
+            <Grid Grid.ColumnSpan="2" ColumnDefinitions="*,*,*" ColumnSpacing="10">
+              <Button Command="{Binding PlayCommand}" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center" Content="Play" />
+              <Button Grid.Column="1" Command="{Binding PauseCommand}" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center" Content="Pause" />
+              <Button Grid.Column="2" Command="{Binding StopCommand}" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Center" Content="Stop" />
+            </Grid>
+
+            <TextBlock Grid.Row="2" FontWeight="SemiBold" Foreground="#263238"
+                       Text="Frequency" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Foreground="#536168"
+                       Text="{Binding Frequency, StringFormat={}{0:0} Hz}" />
+            <Slider Grid.Row="3" Grid.ColumnSpan="2" Minimum="110" Maximum="1760"
+                    TickFrequency="10" Value="{Binding Frequency}" />
+
+            <TextBlock Grid.Row="4" FontWeight="SemiBold" Foreground="#263238"
+                       Text="Volume" />
+            <TextBlock Grid.Row="4" Grid.Column="1" Foreground="#536168"
+                       Text="{Binding Volume, StringFormat={}{0:P0}}" />
+            <Slider Grid.Row="5" Grid.ColumnSpan="2" Minimum="0" Maximum="1"
+                    TickFrequency="0.05" Value="{Binding Volume}" />
+
+            <Border Grid.Row="6" Grid.ColumnSpan="2" Padding="12,9" Background="#EAF4F1"
+                    BorderBrush="#B9D7CE" BorderThickness="1" CornerRadius="4">
+              <TextBlock Foreground="#174F43" Text="{Binding Status}" />
+            </Border>
+          </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="4" HorizontalAlignment="Center" FontSize="12"
+                   Foreground="#68767C" Text="48 kHz stereo sine generator" />
+      </Grid>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

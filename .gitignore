@@ -1,0 +1,21 @@
+## .NET build output
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esult*/
+TestResults/
+*.user
+*.suo
+
+## IDE and local tooling
+.vs/
+.idea/
+.vscode/
+.testagent/cache/
+
+## NuGet and generated package-demo artifacts
+*.nupkg
+*.snupkg
+artifacts/*
+!artifacts/packages/
+artifacts/packages/*
+!artifacts/packages/.gitkeep

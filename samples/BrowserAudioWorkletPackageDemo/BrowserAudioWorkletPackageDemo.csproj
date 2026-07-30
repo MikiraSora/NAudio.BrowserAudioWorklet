@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-browser</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+
+    <!-- Demo app: not a shipping NuGet package. It deliberately consumes the
+         library only through the locally packed NuGet package below. -->
+    <IsPackable>false</IsPackable>
+    <IsPublishable>true</IsPublishable>
+    <Version>0.1.0</Version>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Strong-naming the repo libraries is required, but a WASM demo Exe has no
+         reason to be signed and the browser SDK doesn't expect it. -->
+    <SignAssembly>false</SignAssembly>
+    <!-- Demo code favours brevity over the library's strict analysis gate. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-none</AnalysisLevel>
+    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)..\..\artifacts\packages</RestoreAdditionalProjectSources>
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)..\..\artifacts\package-demo-cache</RestorePackagesPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="$(AvaloniaPackageVersion)" />
+    <PackageReference Include="Avalonia.Browser" Version="$(AvaloniaPackageVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaPackageVersion)" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="$(AvaloniaPackageVersion)" />
+    <PackageReference Include="NAudio.Core" Version="$(NAudioCorePackageVersion)" />
+    <!-- This is intentionally a PackageReference: the validation script packs
+         the library first and restores this project from artifacts/packages. -->
+    <PackageReference Include="NAudio.Avalonia.BrowserAudioWorklet" Version="$(BrowserAudioWorkletPackageVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="..\..\naudio-logo.png" Link="Assets\naudio-logo.png" />
+  </ItemGroup>
+
+</Project>

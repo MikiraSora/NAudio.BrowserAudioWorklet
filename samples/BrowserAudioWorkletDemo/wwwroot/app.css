@@ -1,0 +1,22 @@
+/* Splash shown before the .NET runtime boots and Avalonia takes over #out. */
+.app-splash {
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    background: #172126;
+    color: white;
+    font-family: sans-serif;
+    justify-content: center;
+    align-items: center;
+    display: flex;
+    pointer-events: none;
+}
+
+.app-splash h2 {
+    font-weight: 400;
+    font-size: 1.25rem;
+}
+
+.avalonia-canvas ~ .app-splash {
+    display: none;
+}

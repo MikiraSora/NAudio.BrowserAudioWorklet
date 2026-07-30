@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- Keep versions in one place so the source demo, tests and package consumer
+         all validate the same dependency graph. -->
+    <NAudioCorePackageVersion>2.3.0</NAudioCorePackageVersion>
+    <AvaloniaPackageVersion>11.3.12</AvaloniaPackageVersion>
+    <BrowserAudioWorkletPackageVersion>0.1.0</BrowserAudioWorkletPackageVersion>
+  </PropertyGroup>
+</Project>
