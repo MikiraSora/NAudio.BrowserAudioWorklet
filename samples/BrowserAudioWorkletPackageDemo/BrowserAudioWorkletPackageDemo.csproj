@@ -24,6 +24,13 @@
     <RestorePackagesPath>$(MSBuildThisFileDirectory)..\..\artifacts\package-demo-cache</RestorePackagesPath>
   </PropertyGroup>
 
+  <!-- AOT-compile to native WebAssembly on Release publishes. Interpreted IL is
+       visibly janky for Avalonia Browser apps; AOT trades (much) longer publish
+       times for near-native runtime performance. Debug stays interpreted. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RunAOTCompilation>true</RunAOTCompilation>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="$(AvaloniaPackageVersion)" />
     <PackageReference Include="Avalonia.Browser" Version="$(AvaloniaPackageVersion)" />
