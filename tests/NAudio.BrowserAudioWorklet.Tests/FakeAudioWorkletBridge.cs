@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using NAudio.Wave.Browser;
 
-namespace NAudio.Avalonia.BrowserAudioWorklet.Tests;
+namespace NAudio.BrowserAudioWorklet.Tests;
 
 /// <summary>
 /// Deterministic stand-in for the JavaScript <see cref="IAudioWorkletBridge"/>. Records control

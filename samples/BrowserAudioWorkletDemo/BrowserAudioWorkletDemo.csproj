@@ -34,8 +34,8 @@
   <ItemGroup>
     <!-- The library under test. Its AudioWorklet JavaScript rides along as a
          static web asset and is published to
-         wwwroot/_content/NAudio.Avalonia.BrowserAudioWorklet/ automatically. -->
-    <ProjectReference Include="..\..\src\NAudio.Avalonia.BrowserAudioWorklet\NAudio.Avalonia.BrowserAudioWorklet.csproj" />
+         wwwroot/_content/NAudio.BrowserAudioWorklet/ automatically. -->
+    <ProjectReference Include="..\..\src\NAudio.BrowserAudioWorklet\NAudio.BrowserAudioWorklet.csproj" />
   </ItemGroup>
 
   <ItemGroup>

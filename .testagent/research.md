@@ -2,8 +2,8 @@
 
 ## Scope
 
-- Production project: `src/NAudio.Avalonia.BrowserAudioWorklet/`.
-- Unit-test project: `tests/NAudio.Avalonia.BrowserAudioWorklet.Tests/`.
+- Production project: `src/NAudio.BrowserAudioWorklet/`.
+- Unit-test project: `tests/NAudio.BrowserAudioWorklet.Tests/`.
 - Source-reference Demo: `samples/BrowserAudioWorkletDemo/`.
 - Package-only Demo: `samples/BrowserAudioWorkletPackageDemo/`.
 - Package version under validation: `0.1.0`.
@@ -32,7 +32,7 @@
 ## Packaging Findings
 
 - The Razor class library packages `wwwroot` files as static web assets and the
-  consuming WebAssembly app publishes them under `_content/NAudio.Avalonia.BrowserAudioWorklet/`.
+  consuming WebAssembly app publishes them under `_content/NAudio.BrowserAudioWorklet/`.
 - The package exposes both `net9.0` and the normalized browser TFM
   `net9.0-browser1.0` in its NuGet layout.
 - `Span<byte>` remains the JavaScript memory-view boundary. Stable NAudio.Core

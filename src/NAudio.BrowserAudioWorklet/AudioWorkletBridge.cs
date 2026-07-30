@@ -14,7 +14,7 @@ namespace NAudio.Wave.Browser;
 internal sealed partial class AudioWorkletBridge : IAudioWorkletBridge
 {
     private const string ModuleName = "naudio-audio-worklet";
-    private const string ModuleUrl = "../_content/NAudio.Avalonia.BrowserAudioWorklet/naudio-audio-worklet.js";
+    private const string ModuleUrl = "../_content/NAudio.BrowserAudioWorklet/naudio-audio-worklet.js";
 
     private static readonly object ModuleLock = new();
     private static Task moduleLoad;

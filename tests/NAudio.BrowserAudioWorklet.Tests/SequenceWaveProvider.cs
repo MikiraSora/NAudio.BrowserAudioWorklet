@@ -1,7 +1,7 @@
 using System;
 using NAudio.Wave;
 
-namespace NAudio.Avalonia.BrowserAudioWorklet.Tests;
+namespace NAudio.BrowserAudioWorklet.Tests;
 
 /// <summary>
 /// A deterministic 16-bit PCM source that yields a fixed run of samples then end-of-stream.

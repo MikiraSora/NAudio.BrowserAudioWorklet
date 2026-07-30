@@ -32,7 +32,7 @@
     <PackageReference Include="NAudio.Core" Version="$(NAudioCorePackageVersion)" />
     <!-- This is intentionally a PackageReference: the validation script packs
          the library first and restores this project from artifacts/packages. -->
-    <PackageReference Include="NAudio.Avalonia.BrowserAudioWorklet" Version="$(BrowserAudioWorkletPackageVersion)" />
+    <PackageReference Include="NAudio.BrowserAudioWorklet" Version="$(BrowserAudioWorkletPackageVersion)" />
   </ItemGroup>
 
   <ItemGroup>

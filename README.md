@@ -1,68 +1,72 @@
-# NAudio.Avalonia.BrowserAudioWorklet
+# NAudio.BrowserAudioWorklet
 
-This repository contains the browser AudioWorklet backend for NAudio and two
-Avalonia Browser samples. It is intentionally independent from the NAudio source
-tree: NAudio is consumed from NuGet, while the package in `src/` supplies the
-browser-specific player and its static web assets.
+Play audio in the browser with NAudio. This repo provides
+`BrowserAudioWorkletPlayer`, an NAudio player that runs on WebAssembly
+(Avalonia Browser) and outputs sound through the Web Audio **AudioWorklet**
+API — no Blazor, no plugins.
 
-## Projects
+**Live demo:** <https://mikirasora.github.io/NAudio.BrowserAudioWorklet/>
 
-- `src/NAudio.Avalonia.BrowserAudioWorklet`: the `BrowserAudioWorkletPlayer`
-  implementation and its AudioWorklet JavaScript modules.
-- `tests/NAudio.Avalonia.BrowserAudioWorklet.Tests`: platform-neutral NUnit tests
-  using an injected bridge.
-- `samples/BrowserAudioWorkletDemo`: a source-reference Avalonia Browser sample.
-- `samples/BrowserMusicPlayerDemo`: a source-reference music player sample. It picks
-  audio files or a whole folder (recursive) into a playlist, decodes mp3/ogg/wav with
-  the browser's own `AudioContext.decodeAudioData`, and plays through
-  `BrowserAudioWorkletPlayer` with seek/play/pause/stop/volume controls.
-- `samples/BrowserAudioWorkletPackageDemo`: a package-reference sample. It has no
-  project reference to the library and is built by `eng/Test-Package.ps1` after a
-  local package is produced.
+## What it does
 
-The package-reference sample is intentionally outside the main solution because
-its package is generated locally as part of the validation flow.
+- Implements an NAudio `IWavePlayer`-style player backed by a real
+  AudioWorklet node, so buffered PCM playback, pause/resume, volume and
+  position all work from C#.
+- Ships its JavaScript as static web assets: referencing the project (or the
+  NuGet package) is enough — no manual `<script>` tag, no
+  `AudioWorklet.addModule` call.
+- Decodes compressed audio (mp3/ogg/wav) using the browser's built-in
+  `AudioContext.decodeAudioData`, shown in the music player demo.
 
-## Build and test
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `src/NAudio.BrowserAudioWorklet` | The library: `BrowserAudioWorkletPlayer` plus its AudioWorklet JS modules under `wwwroot/`. |
+| `tests/NAudio.BrowserAudioWorklet.Tests` | Platform-neutral NUnit tests driven by a fake bridge (no browser needed). |
+| `samples/BrowserMusicPlayerDemo` | Music player: pick files or a folder, build a playlist, seek/play/pause/stop/volume. |
+| `samples/BrowserAudioWorkletDemo` | Minimal player sample (source reference). |
+| `samples/BrowserAudioWorkletPackageDemo` | Same sample but consuming the NuGet package; built by `eng/Test-Package.ps1`. |
+| `eng/Test-Package.ps1` | Packs the library locally and validates the package-only sample. |
+
+## Getting started
+
+Requirements: .NET 9 SDK and a Chromium-based browser (folder picking uses the
+File System Access API; plain file picking works in other browsers too).
+
+Run the music player demo:
 
 ```powershell
-dotnet restore .\NAudio.Avalonia.BrowserAudioWorklet.slnx
-dotnet build .\NAudio.Avalonia.BrowserAudioWorklet.slnx -c Release
-dotnet test --project .\tests\NAudio.Avalonia.BrowserAudioWorklet.Tests\NAudio.Avalonia.BrowserAudioWorklet.Tests.csproj -c Release
+dotnet run --project .\samples\BrowserMusicPlayerDemo\BrowserMusicPlayerDemo.csproj
+# then open http://127.0.0.1:5299/
 ```
 
-To pack the library and validate a clean package consumer:
+Build and test everything:
+
+```powershell
+dotnet build .\NAudio.BrowserAudioWorklet.slnx -c Release
+dotnet test --project .\tests\NAudio.BrowserAudioWorklet.Tests\NAudio.BrowserAudioWorklet.Tests.csproj -c Release
+```
+
+Validate the NuGet package end-to-end (pack → restore → publish the
+package-only sample):
 
 ```powershell
 .\eng\Test-Package.ps1
 ```
 
-The script packs version `0.1.0` to `artifacts/packages`, restores the package-only
-sample from that local feed, verifies that the assets file records a NuGet package
-dependency, and publishes the sample.
-
-After validation, run that package-only sample at `http://127.0.0.1:5297/`:
+## Use it in your own app
 
 ```powershell
-dotnet run --project .\samples\BrowserAudioWorkletPackageDemo\BrowserAudioWorkletPackageDemo.csproj
+dotnet add package NAudio.BrowserAudioWorklet
 ```
 
-The music player sample runs at `http://127.0.0.1:5299/`:
+The package targets `net9.0` and `net9.0-browser`. See
+`src/NAudio.BrowserAudioWorklet/README.md` for the player API and data flow.
 
-```powershell
-dotnet run --project .\samples\BrowserMusicPlayerDemo\BrowserMusicPlayerDemo.csproj
-```
+## Deployment
 
-Folder picking relies on the File System Access API, so it needs a Chromium-based
-browser; file picking and playback also work elsewhere.
-
-## Package usage
-
-```powershell
-dotnet add package NAudio.Avalonia.BrowserAudioWorklet --version 0.1.0
-```
-
-The package targets `net9.0` and `net9.0-browser`. Its JavaScript files are static
-web assets, so an Avalonia Browser consumer does not need a manual script tag or a
-separate `AudioWorklet.addModule` call. See the package README under
-`src/NAudio.Avalonia.BrowserAudioWorklet/README.md` for the player API and data flow.
+`.github/workflows/deploy-pages.yml` publishes the music player demo to
+GitHub Pages on every push to `main` that touches the library or the demo
+(also runnable manually from the Actions tab). Enable it under repo
+**Settings → Pages → Source: GitHub Actions**.

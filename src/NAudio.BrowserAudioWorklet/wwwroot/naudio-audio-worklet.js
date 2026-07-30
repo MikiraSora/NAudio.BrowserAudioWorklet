@@ -1,4 +1,4 @@
-// Main-thread Web Audio transport for NAudio.Avalonia.BrowserAudioWorklet.
+// Main-thread Web Audio transport for NAudio.BrowserAudioWorklet.
 // Managed code supplies interleaved Float32 frames when the processor asks for data.
 
 const graphs = new Map();

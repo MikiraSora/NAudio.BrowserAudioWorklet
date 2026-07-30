@@ -1,4 +1,4 @@
-// Audio-thread processor for NAudio.Avalonia.BrowserAudioWorklet.
+// Audio-thread processor for NAudio.BrowserAudioWorklet.
 
 const RENDER_QUANTUM = 128;
 

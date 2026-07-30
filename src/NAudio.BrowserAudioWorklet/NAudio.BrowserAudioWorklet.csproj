@@ -6,17 +6,17 @@
          JavaScript bridge (guarded by #if BROWSER) only compiles on the browser
          leg. The Razor SDK is used purely for its Static Web Assets pipeline: it
          packs wwwroot/*.js into the nupkg and republishes it under
-         _content/NAudio.Avalonia.BrowserAudioWorklet/ in any consuming WASM app,
+         _content/NAudio.BrowserAudioWorklet/ in any consuming WASM app,
          so "reference the package" is all it takes to ship the AudioWorklet JS. -->
     <TargetFrameworks>net9.0;net9.0-browser</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsAotCompatible>true</IsAotCompatible>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <StaticWebAssetBasePath>_content/NAudio.Avalonia.BrowserAudioWorklet</StaticWebAssetBasePath>
-    <PackageId>NAudio.Avalonia.BrowserAudioWorklet</PackageId>
+    <StaticWebAssetBasePath>_content/NAudio.BrowserAudioWorklet</StaticWebAssetBasePath>
+    <PackageId>NAudio.BrowserAudioWorklet</PackageId>
     <Version>$(BrowserAudioWorkletPackageVersion)</Version>
     <Title>NAudio browser AudioWorklet output</Title>
-    <Authors>NAudio.Avalonia.BrowserAudioWorklet contributors</Authors>
+    <Authors>NAudio.BrowserAudioWorklet contributors</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>naudio;avalonia;browser;wasm;audio;audio-worklet</PackageTags>
@@ -32,7 +32,7 @@
          constructor to the unit tests. This independent repository does not
          strong-name the test assembly, so a simple friend assembly name is enough. -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
-      <_Parameter1>NAudio.Avalonia.BrowserAudioWorklet.Tests</_Parameter1>
+      <_Parameter1>NAudio.BrowserAudioWorklet.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 

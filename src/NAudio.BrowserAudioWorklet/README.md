@@ -1,6 +1,6 @@
-# NAudio.Avalonia.BrowserAudioWorklet
+# NAudio.BrowserAudioWorklet
 
-`NAudio.Avalonia.BrowserAudioWorklet` adds browser audio output to NAudio through
+`NAudio.BrowserAudioWorklet` adds browser audio output to NAudio through
 the Web Audio `AudioWorklet` API. It is intended for Avalonia Browser applications
 and also works in other .NET WebAssembly applications.
 
@@ -25,13 +25,13 @@ The package carries both JavaScript modules as static web assets. A consuming
 WebAssembly application publishes them automatically under:
 
 ```text
-_content/NAudio.Avalonia.BrowserAudioWorklet/
+_content/NAudio.BrowserAudioWorklet/
 ```
 
 No script tag or manual `AudioWorklet.addModule` call is required.
 
 ```powershell
-dotnet add package NAudio.Avalonia.BrowserAudioWorklet
+dotnet add package NAudio.BrowserAudioWorklet
 ```
 
 ## Data Flow

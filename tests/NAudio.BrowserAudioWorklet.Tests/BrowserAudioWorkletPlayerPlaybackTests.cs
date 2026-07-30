@@ -6,7 +6,7 @@ using NAudio.Wave;
 using NAudio.Wave.Browser;
 using NUnit.Framework;
 
-namespace NAudio.Avalonia.BrowserAudioWorklet.Tests;
+namespace NAudio.BrowserAudioWorklet.Tests;
 
 [TestFixture]
 [Category("UnitTest")]

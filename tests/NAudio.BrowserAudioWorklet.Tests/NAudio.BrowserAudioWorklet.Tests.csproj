@@ -22,7 +22,7 @@
   <ItemGroup>
     <!-- Reference the net9.0 leg explicitly: the production library multi-targets
          net9.0;net9.0-browser, and this test project is net9.0-only. -->
-    <ProjectReference Include="..\..\src\NAudio.Avalonia.BrowserAudioWorklet\NAudio.Avalonia.BrowserAudioWorklet.csproj" />
+    <ProjectReference Include="..\..\src\NAudio.BrowserAudioWorklet\NAudio.BrowserAudioWorklet.csproj" />
   </ItemGroup>
 
 </Project>

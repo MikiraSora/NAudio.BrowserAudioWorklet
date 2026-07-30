@@ -18,7 +18,7 @@ Date: 2026-07-31
 ## Commands
 
 ```powershell
-dotnet build .\NAudio.Avalonia.BrowserAudioWorklet.slnx -c Release
-dotnet test --project .\tests\NAudio.Avalonia.BrowserAudioWorklet.Tests\NAudio.Avalonia.BrowserAudioWorklet.Tests.csproj -c Release --no-build
+dotnet build .\NAudio.BrowserAudioWorklet.slnx -c Release
+dotnet test --project .\tests\NAudio.BrowserAudioWorklet.Tests\NAudio.BrowserAudioWorklet.Tests.csproj -c Release --no-build
 .\eng\Test-Package.ps1
 ```

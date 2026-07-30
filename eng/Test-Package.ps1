@@ -3,7 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$packageProject = Join-Path $repoRoot 'src\NAudio.Avalonia.BrowserAudioWorklet\NAudio.Avalonia.BrowserAudioWorklet.csproj'
+$packageProject = Join-Path $repoRoot 'src\NAudio.BrowserAudioWorklet\NAudio.BrowserAudioWorklet.csproj'
 $consumerProject = Join-Path $repoRoot 'samples\BrowserAudioWorkletPackageDemo\BrowserAudioWorkletPackageDemo.csproj'
 $packageOutput = Join-Path $repoRoot 'artifacts\packages'
 $consumerCache = Join-Path $repoRoot 'artifacts\package-demo-cache'
@@ -35,10 +35,10 @@ dotnet build $consumerProject -c Release --no-restore
 $assetsPath = Join-Path (Split-Path $consumerProject) 'obj\project.assets.json'
 $assets = Get-Content -Raw -LiteralPath $assetsPath | ConvertFrom-Json
 $packageLibrary = $assets.libraries.PSObject.Properties |
-    Where-Object { $_.Name -eq 'NAudio.Avalonia.BrowserAudioWorklet/0.1.0' } |
+    Where-Object { $_.Name -eq 'NAudio.BrowserAudioWorklet/0.1.0' } |
     Select-Object -ExpandProperty Value
 if ($null -eq $packageLibrary -or $packageLibrary.type -ne 'package') {
-    throw "The package demo did not resolve NAudio.Avalonia.BrowserAudioWorklet/0.1.0 as a NuGet package."
+    throw "The package demo did not resolve NAudio.BrowserAudioWorklet/0.1.0 as a NuGet package."
 }
 
 dotnet publish $consumerProject -c Release --no-restore -o $publishOutput

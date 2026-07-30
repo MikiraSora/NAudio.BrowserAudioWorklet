@@ -1,0 +1,58 @@
+name: Deploy Music Player Demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'samples/BrowserMusicPlayerDemo/**'
+      - 'Directory.Build.props'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # The Avalonia Browser publish links native WASM assets with emscripten,
+      # which ships in the wasm-tools workload.
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+
+      - name: Publish the music player demo
+        run: dotnet publish samples/BrowserMusicPlayerDemo/BrowserMusicPlayerDemo.csproj -c Release -o publish
+
+      # GitHub Pages runs Jekyll by default, which skips the `_framework` and
+      # `_content` folders. `.nojekyll` disables that processing.
+      - name: Disable Jekyll
+        run: touch publish/wwwroot/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -8,10 +8,10 @@
     <File Path="README.md" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/NAudio.Avalonia.BrowserAudioWorklet/NAudio.Avalonia.BrowserAudioWorklet.csproj" />
+    <Project Path="src/NAudio.BrowserAudioWorklet/NAudio.BrowserAudioWorklet.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/NAudio.Avalonia.BrowserAudioWorklet.Tests/NAudio.Avalonia.BrowserAudioWorklet.Tests.csproj" />
+    <Project Path="tests/NAudio.BrowserAudioWorklet.Tests/NAudio.BrowserAudioWorklet.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/BrowserAudioWorkletDemo/BrowserAudioWorkletDemo.csproj" />
