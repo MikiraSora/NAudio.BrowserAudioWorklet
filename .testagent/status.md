@@ -5,7 +5,7 @@ Date: 2026-07-31
 ## Result
 
 - NUnit/Microsoft Testing Platform: 44 passed, 0 failed, 0 skipped.
-- Main solution Release build: library `net9.0` and `net9.0-browser`, tests, and
+- Main solution Release build: library `net10.0` and `net10.0-browser`, tests, and
   source-reference Demo built with 0 warnings and 0 errors.
 - NuGet pack: version 0.1.0 produced the library and symbols packages with both
   target assemblies, README, and two AudioWorklet static web assets.

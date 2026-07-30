@@ -16,8 +16,8 @@ interface in NAudio.Core.
 
 ## Platform
 
-The real output backend targets `net9.0-browser`. The package also contains a
-`net9.0` target so code can reference the type and its state machine can be tested
+The real output backend targets `net10.0-browser`. The package also contains a
+`net10.0` target so code can reference the type and its state machine can be tested
 outside a browser. Calling a public player constructor outside WebAssembly throws
 `PlatformNotSupportedException`.
 

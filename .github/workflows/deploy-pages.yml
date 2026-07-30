@@ -28,13 +28,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # The Avalonia Browser publish links native WASM assets with emscripten.
-      # Building the net9.0-browser target on the .NET 10 SDK requires the
-      # banded wasm-tools-net9 workload; with plain wasm-tools alone the
-      # SkiaSharp/HarfBuzzSharp native libraries are silently skipped and the
-      # app dies at startup with DllNotFoundException: libSkiaSharp.
-      - name: Install wasm-tools workloads
-        run: dotnet workload install wasm-tools wasm-tools-net9
+      # The Avalonia Browser publish links native WASM assets with emscripten,
+      # which ships in the wasm-tools workload. The demo targets net10.0-browser,
+      # so the band-matched plain wasm-tools is the right one here. (Building a
+      # netX.0-browser target with a newer SDK band would instead need the banded
+      # wasm-tools-netX workload — without it the SkiaSharp/HarfBuzzSharp native
+      # libraries are silently skipped and the app dies at startup with
+      # DllNotFoundException: libSkiaSharp.)
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
 
       - name: Publish the music player demo
         run: dotnet publish samples/BrowserMusicPlayerDemo/BrowserMusicPlayerDemo.csproj -c Release -o publish

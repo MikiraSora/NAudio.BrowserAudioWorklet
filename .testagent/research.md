@@ -10,7 +10,7 @@
 
 ## Repository Conventions
 
-- C# and .NET 9 targets, built by the installed .NET 10 SDK.
+- C# and .NET 10 targets, built by the installed .NET 10 SDK.
 - `NAudio.Core` 2.3.0 is consumed from NuGet in the library, tests, and both
   Demos.
 - Avalonia packages use 11.3.12.
@@ -33,8 +33,8 @@
 
 - The Razor class library packages `wwwroot` files as static web assets and the
   consuming WebAssembly app publishes them under `_content/NAudio.BrowserAudioWorklet/`.
-- The package exposes both `net9.0` and the normalized browser TFM
-  `net9.0-browser1.0` in its NuGet layout.
+- The package exposes both `net10.0` and the normalized browser TFM
+  `net10.0-browser1.0` in its NuGet layout.
 - `Span<byte>` remains the JavaScript memory-view boundary. Stable NAudio.Core
   2.3.0 supplies array-based `ISampleProvider.Read`, so the player reuses a float
   array and copies its bit-identical bytes into that Span.

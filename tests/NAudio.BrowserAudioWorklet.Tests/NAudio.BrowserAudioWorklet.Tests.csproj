@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Plain net9.0: these tests exercise the platform-agnostic player state
+    <!-- Plain net10.0: these tests exercise the platform-agnostic player state
          machine against a fake IAudioWorkletBridge, so they run anywhere and
          never touch a browser or JavaScript runtime. The real [JSImport] bridge
-         lives on the production library's net9.0-browser leg and is covered by
+         lives on the production library's net10.0-browser leg and is covered by
          manual/integration verification, not here. -->
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <EnableNUnitRunner>true</EnableNUnitRunner>
     <IsPackable>false</IsPackable>
@@ -20,8 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Reference the net9.0 leg explicitly: the production library multi-targets
-         net9.0;net9.0-browser, and this test project is net9.0-only. -->
+    <!-- Reference the net10.0 leg explicitly: the production library multi-targets
+         net10.0;net10.0-browser, and this test project is net10.0-only. -->
     <ProjectReference Include="..\..\src\NAudio.BrowserAudioWorklet\NAudio.BrowserAudioWorklet.csproj" />
   </ItemGroup>
 

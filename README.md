@@ -31,7 +31,7 @@ API — no Blazor, no plugins.
 
 ## Getting started
 
-Requirements: .NET 9 SDK and a Chromium-based browser (folder picking uses the
+Requirements: .NET 10 SDK and a Chromium-based browser (folder picking uses the
 File System Access API; plain file picking works in other browsers too).
 
 Run the music player demo:
@@ -61,7 +61,7 @@ package-only sample):
 dotnet add package NAudio.BrowserAudioWorklet
 ```
 
-The package targets `net9.0` and `net9.0-browser`. See
+The package targets `net10.0` and `net10.0-browser`. See
 `src/NAudio.BrowserAudioWorklet/README.md` for the player API and data flow.
 
 ## Deployment
