@@ -26,15 +26,30 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
-      # The Avalonia Browser publish links native WASM assets with emscripten,
-      # which ships in the wasm-tools workload.
-      - name: Install wasm-tools workload
-        run: dotnet workload install wasm-tools
+      # The Avalonia Browser publish links native WASM assets with emscripten.
+      # Building the net9.0-browser target on the .NET 10 SDK requires the
+      # banded wasm-tools-net9 workload; with plain wasm-tools alone the
+      # SkiaSharp/HarfBuzzSharp native libraries are silently skipped and the
+      # app dies at startup with DllNotFoundException: libSkiaSharp.
+      - name: Install wasm-tools workloads
+        run: dotnet workload install wasm-tools wasm-tools-net9
 
       - name: Publish the music player demo
         run: dotnet publish samples/BrowserMusicPlayerDemo/BrowserMusicPlayerDemo.csproj -c Release -o publish
+
+      # Guard against the silent native-link skip above: fail the build if the
+      # SkiaSharp symbols never made it into dotnet.native.wasm.
+      - name: Verify SkiaSharp native assets were linked
+        run: |
+          wasm=$(ls publish/wwwroot/_framework/dotnet.native.*.wasm)
+          count=$(strings "$wasm" | grep -c 'sk_' || true)
+          echo "skia symbols in $wasm: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "SkiaSharp native assets are missing from the published wasm."
+            exit 1
+          fi
 
       # GitHub Pages runs Jekyll by default, which skips the `_framework` and
       # `_content` folders. `.nojekyll` disables that processing.
