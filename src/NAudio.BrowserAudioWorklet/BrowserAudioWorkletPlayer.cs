@@ -141,6 +141,18 @@ public sealed class BrowserAudioWorkletPlayer : IWavePlayer
     public BrowserAudioLatencyInfo LatencyInfo { get; private set; }
 
     /// <summary>
+    /// Gets the browser-reported <c>AudioContext.baseLatency</c> in seconds. Returns zero until
+    /// <see cref="PrepareAsync"/> completes.
+    /// </summary>
+    public double BaseLatency => LatencyInfo?.BaseLatencySeconds ?? 0.0;
+
+    /// <summary>
+    /// Gets the browser-reported <c>AudioContext.outputLatency</c> in seconds. Returns zero until
+    /// <see cref="PrepareAsync"/> completes.
+    /// </summary>
+    public double OutputLatency => LatencyInfo?.OutputLatencySeconds ?? 0.0;
+
+    /// <summary>
     /// Gets the cumulative number of output frames actually copied from the AudioWorklet queue
     /// since <see cref="ResetTotalConsumedAsync"/> was last called.
     /// </summary>

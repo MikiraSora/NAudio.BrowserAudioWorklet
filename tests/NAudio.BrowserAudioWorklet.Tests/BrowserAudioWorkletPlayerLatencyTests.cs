@@ -63,6 +63,38 @@ public class BrowserAudioWorkletPlayerLatencyTests
             Assert.That(first.BaseLatencySeconds, Is.EqualTo(0.004));
             Assert.That(first.OutputLatencySeconds, Is.EqualTo(0.012));
             Assert.That(first.EstimatedDeviceLatencySeconds, Is.EqualTo(0.016).Within(0.000001));
+            Assert.That(player.BaseLatency, Is.EqualTo(0.004));
+            Assert.That(player.OutputLatency, Is.EqualTo(0.012));
+        });
+    }
+
+    [Test]
+    public async Task AudioContextLatencyProperties_AreReadOnlyAndZeroBeforePreparation()
+    {
+        var bridge = new FakeAudioWorkletBridge
+        {
+            BaseLatencySeconds = 0.006,
+            OutputLatencySeconds = 0.014,
+        };
+        using var player = new BrowserAudioWorkletPlayer(bridge);
+        player.Init(new TestSampleProvider(48000, 1, 0));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(player.BaseLatency, Is.Zero);
+            Assert.That(player.OutputLatency, Is.Zero);
+            Assert.That(typeof(BrowserAudioWorkletPlayer).GetProperty(nameof(player.BaseLatency)).CanWrite,
+                Is.False);
+            Assert.That(typeof(BrowserAudioWorkletPlayer).GetProperty(nameof(player.OutputLatency)).CanWrite,
+                Is.False);
+        });
+
+        await player.PrepareAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(player.BaseLatency, Is.EqualTo(0.006));
+            Assert.That(player.OutputLatency, Is.EqualTo(0.014));
         });
     }
 

@@ -14,6 +14,8 @@ The package exposes:
 | `LatencyMeasureHelper` | Six-probe measurement of resume-to-first-frame main-thread notification latency |
 | `ISeekableSampleProvider` | Optional source contract used by `SeekAsync` |
 | `BrowserAudioLatencyInfo` | Actual context sample rate and browser-reported latency |
+| `BrowserAudioWorkletPlayer.BaseLatency` | Read-only `AudioContext.baseLatency` in seconds after preparation |
+| `BrowserAudioWorkletPlayer.OutputLatency` | Read-only `AudioContext.outputLatency` in seconds after preparation |
 | `BrowserAudioPlaybackMetrics` | First-frame and underrun counters for the current run |
 | `BrowserAudioWorkletPlayer.TotalConsumedFrameCount` | Synchronous cumulative output-frame count |
 | `BrowserAudioWorkletPlayer.TotalConsumedSampleCount` | Cumulative interleaved sample count |
@@ -126,7 +128,10 @@ the application moves a source by another mechanism.
 ## Diagnostics
 
 `PrepareAsync` returns the actual output sample rate, base latency, output
-latency, and target frame capacity. Runtime diagnostics are available through:
+latency, and target frame capacity. The same two browser values are available
+directly as the read-only `BaseLatency` and `OutputLatency` properties after
+preparation; both are measured in seconds and return zero before preparation.
+Runtime diagnostics are available through:
 
 ```csharp
 output.FirstFrameRendered += (_, e) =>

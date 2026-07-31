@@ -187,6 +187,21 @@ git diff --check
 | `README 明确说明调用方式、六个可听短音、计时边界、自动播放前提和“不代表扬声器实际出声时间”。` | Root README and package README contain the click/touch example, six-probe description, timing boundary, autoplay prerequisite, and speaker-latency exclusion. |
 | `不修改现有 Demo UI，也不引入麦克风权限或声学回环。` | Final `git diff --name-only` contains no tracked demo file; source audit found no microphone or loopback additions. |
 
+## 2026-07-31 AudioContext Latency Properties
+
+Implemented read-only `BrowserAudioWorkletPlayer.BaseLatency` and `OutputLatency` properties as
+direct projections of the existing prepared `BrowserAudioLatencyInfo` values. Both report seconds
+and return zero before `PrepareAsync` completes; the JavaScript transport was intentionally left
+unchanged because it already supplies the values.
+
+Validation:
+
+- `AudioContextLatencyProperties_AreReadOnlyAndZeroBeforePreparation` passed with zero pre-prepare
+  values, non-writable reflection metadata, and the configured post-prepare values.
+- `PrepareAsync_IsIdempotentAndPublishesLatencyInfo` passed with the new direct values alongside
+  the original latency record assertions.
+- Focused Release test run: 26 passed, 0 failed, 0 skipped.
+
 ## 2026-07-31 Silent Probe and Demo Button Addendum
 
 This addendum supersedes the earlier audible-probe and no-Demo-change assumptions.

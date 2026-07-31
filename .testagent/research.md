@@ -354,3 +354,62 @@ pairing heuristic, not coverage evidence.
   command and result/status surface.
 - [ ] The Demo Release build succeeds, the button works in a browser, measurement is silent, the
   result is displayed, and no AudioContext or console error remains after completion.
+
+## 2026-07-31 BrowserAudioWorkletPlayer Context Latency Properties Addendum
+
+### Bounded target inventory
+
+- The requested public surface is in `src/NAudio.BrowserAudioWorklet/BrowserAudioWorkletPlayer.cs`.
+  The exact property names are `BaseLatency` and `OutputLatency`; both are intended to expose
+  browser-reported values without adding another options or diagnostics type.
+- `AudioWorkletPreparation` in `IAudioWorkletBridge.cs` already carries
+  `BaseLatencySeconds` and `OutputLatencySeconds`. `BrowserAudioWorkletPlayer.PrepareCoreAsync`
+  copies those fields into the existing `BrowserAudioLatencyInfo` snapshot.
+- `AudioWorkletBridge.cs` reads the JavaScript preparation result, while
+  `wwwroot/naudio-audio-worklet.js` obtains `AudioContext.baseLatency` and
+  `AudioContext.outputLatency`. Its `latencyInfo` helper converts non-finite browser values to
+  zero before they cross the interop boundary.
+- The managed fake already exposes configurable `BaseLatencySeconds` and
+  `OutputLatencySeconds`, so no new bridge seam is required. The focused test file is
+  `tests/NAudio.BrowserAudioWorklet.Tests/BrowserAudioWorkletPlayerLatencyTests.cs`.
+- Public/package documentation lives in `README.md` and
+  `src/NAudio.BrowserAudioWorklet/README.md`; both already document `BrowserAudioLatencyInfo` and
+  are the correct locations for the direct property wording.
+
+### Observed contract and selected semantics
+
+- The API must be exactly `public double BaseLatency { get; }` and
+  `public double OutputLatency { get; }`, measured in seconds. Reflection must see `System.Double`
+  and no public setter for either property.
+- Before a successful `PrepareAsync` completes, both getters return `0.0`. After preparation they
+  return the corresponding `BrowserAudioLatencyInfo` seconds value, without converting to
+  milliseconds or issuing a second JavaScript query. Repeated `PrepareAsync` calls reuse the
+  existing preparation snapshot and therefore keep the bridge preparation count at one.
+- The existing `LatencyInfo` record and `EstimatedDeviceLatencySeconds` remain the source of truth;
+  these properties are convenience projections and must not alter first-frame telemetry or the
+  existing output-latency estimate.
+- A browser that does not expose a finite latency value is represented as zero by the existing
+  JavaScript transport. That transport fallback is distinct from the managed pre-preparation
+  default, but both are intentionally observable as zero seconds.
+
+### Static pairing evidence
+
+The required `find_untested_sources.py --include-tested` scan was run once for this scope. It
+reported 112 source files, 11 test files, 25 statically paired source files, 87 unpaired source
+files, and one orphan test. The relevant pairings are `BrowserAudioWorkletPlayer.cs` with the
+player latency/playback tests, `BrowserAudioDiagnostics.cs` and `IAudioWorkletBridge.cs` with the
+same latency fixture and fake bridge, and the existing JavaScript transport tests with the
+shipping transport module. This is static identifier/import pairing evidence, not coverage.
+
+### Acceptance checklist for this addendum
+
+- [ ] Both public properties are read-only `double` values whose names match `BaseLatency` and
+  `OutputLatency` exactly.
+- [ ] Values are in seconds, are zero before preparation, and equal the prepared
+  `AudioContext` values afterward, including when those values are non-zero decimals.
+- [ ] Preparation remains idempotent and the existing `LatencyInfo` and output-estimate semantics
+  are unchanged.
+- [ ] Both README files show the direct properties, their units, and the zero-before-prepare
+  behavior; unsupported/non-finite browser values remain documented as zero.
+- [ ] Focused NUnit, Release build, complete Node/worklet checks, and the local package consumer
+  are recorded after implementation.

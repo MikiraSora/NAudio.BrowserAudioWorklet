@@ -105,6 +105,11 @@ For a source position, keep an application-owned start position and calculate
 `start position + output.TotalConsumedTime`. Do not use the source/provider
 position directly: the player may have read ahead into the AudioWorklet queue.
 
+After `PrepareAsync` completes, `BrowserAudioWorkletPlayer.BaseLatency` and
+`BrowserAudioWorkletPlayer.OutputLatency` expose the browser `AudioContext`'s
+read-only `baseLatency` and `outputLatency` values in seconds. Both properties
+return zero before the audio graph has been prepared.
+
 ## Measure first-frame notification latency
 
 Call `LatencyMeasureHelper.MeasureLatency` after Web Audio playback has already

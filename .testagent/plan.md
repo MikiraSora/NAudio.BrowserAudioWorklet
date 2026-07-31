@@ -183,6 +183,64 @@ The focused command is expected to include all existing player tests only when t
 omitted; the class filter above keeps the first fix cycle bounded. The package script is the
 repository's existing local NuGet consumer check and should be run after the focused suites pass.
 
+## 2026-07-31 BrowserAudioWorkletPlayer Context Latency Properties Test Plan Addendum
+
+This addendum covers the public `BrowserAudioWorkletPlayer.BaseLatency` and `OutputLatency`
+properties. It is bounded to the existing fake bridge and latency fixture; no new JavaScript
+behavior is required because the preparation payload already contains both browser values.
+
+### Managed tests
+
+Target: `tests/NAudio.BrowserAudioWorklet.Tests/BrowserAudioWorkletPlayerLatencyTests.cs`.
+Reuse `FakeAudioWorkletBridge.BaseLatencySeconds` and `OutputLatencySeconds` so assertions stay
+deterministic and do not require a browser.
+
+| Requirement | Exact test | Required assertions |
+| --- | --- | --- |
+| Public names, CLR types, and read-only shape | `AudioContextLatencyProperties_AreReadOnlyAndZeroBeforePreparation` | Reflection finds `BaseLatency` and `OutputLatency`, each has `PropertyType == typeof(double)`, `CanRead == true`, and `CanWrite == false`. |
+| Pre-prepare semantics | `AudioContextLatencyProperties_AreReadOnlyAndZeroBeforePreparation` | A new initialized player reports `0.0` for both properties before `PrepareAsync`; no bridge preparation is needed to read the defaults. |
+| Prepared values and seconds units | `AudioContextLatencyProperties_AreReadOnlyAndZeroBeforePreparation` | Configure `0.006` and `0.014` on the fake, prepare once, and assert exact property values. Decimal values catch an accidental milliseconds conversion. |
+| Existing snapshot/idempotence behavior | `PrepareAsync_IsIdempotentAndPublishesLatencyInfo` | Configure `0.004` and `0.012`, call `PrepareAsync` twice, assert `PrepareCount == 1`, the returned `BrowserAudioLatencyInfo` is the same instance, and both direct properties match the snapshot. |
+
+If the implementation chooses a separate test for API shape, it may split the first row, but the
+observable assertions must remain identical. Do not add a public property to
+`BrowserAudioFirstFrameEventArgs` or change `EstimatedStartToOutputLatencySeconds`.
+
+### Documentation updates
+
+Update `README.md` and `src/NAudio.BrowserAudioWorklet/README.md` in the existing latency/diagnostic
+sections. Include a short code example that reads `output.BaseLatency` and `output.OutputLatency`,
+state that both are read-only seconds values copied from the prepared `AudioContext`, and state
+that they return zero before `PrepareAsync` completes. Preserve the existing explanation that
+these context values do not represent the physical time a speaker produces sound. Mention the
+existing JavaScript non-finite fallback as zero only where the surrounding diagnostics text needs
+that qualification; do not introduce a second latency naming convention.
+
+### Verification commands
+
+Run the focused managed fixture first:
+
+```powershell
+dotnet test --project .\tests\NAudio.BrowserAudioWorklet.Tests\NAudio.BrowserAudioWorklet.Tests.csproj -c Release --filter "FullyQualifiedName~BrowserAudioWorkletPlayerLatencyTests"
+```
+
+Then run the repository acceptance checks, including the documentation-facing package consumer:
+
+```powershell
+dotnet build .\NAudio.BrowserAudioWorklet.slnx -c Release
+dotnet test --project .\tests\NAudio.BrowserAudioWorklet.Tests\NAudio.BrowserAudioWorklet.Tests.csproj -c Release
+node --test .\tests\javascript\*.test.mjs
+node --check .\src\NAudio.BrowserAudioWorklet\wwwroot\naudio-audio-worklet.js
+node --check .\src\NAudio.BrowserAudioWorklet\wwwroot\naudio-audio-worklet-processor.js
+.\eng\Test-Package.ps1
+git diff --check
+```
+
+The focused test and static pairing scan are the evidence for the new managed API contract; the
+Node checks ensure the unchanged transport still reports the same preparation latency fields, and
+the package script verifies that the public properties are available to a consumer. This planning
+addendum itself does not claim that those commands have been run.
+
 ## 2026-07-31 Silent Probe and BrowserAudioWorkletDemo Test Plan Addendum
 
 This addendum supersedes the prior audible browser acceptance. This planning turn does not edit
