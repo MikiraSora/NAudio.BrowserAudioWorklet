@@ -389,6 +389,14 @@ function acquireBuffer(graph, byteLength) {
     return graph.recycledBuffers.splice(selectedIndex, 1)[0];
 }
 
+function copyFromMemoryView(source, destination) {
+    if (typeof source.copyTo === "function") {
+        source.copyTo(destination);
+    } else {
+        destination.set(source);
+    }
+}
+
 export function enqueue(handle, runId, data, frameCount) {
     const graph = getGraph(handle);
     if (graph.error) {
@@ -401,9 +409,9 @@ export function enqueue(handle, runId, data, frameCount) {
     const sampleCount = frameCount * graph.channels;
     const byteLength = sampleCount * Float32Array.BYTES_PER_ELEMENT;
     const buffer = acquireBuffer(graph, byteLength);
-    // The imported MemoryView is an exact-length Span projection. It is array-like but does not
-    // expose every TypedArray helper on every .NET browser runtime, so copy it directly.
-    new Uint8Array(buffer, 0, byteLength).set(data);
+    // A .NET Span is projected as MemoryView, whose bytes are exposed through copyTo rather
+    // than numeric properties. Copy synchronously before transferring the buffer to the worklet.
+    copyFromMemoryView(data, new Uint8Array(buffer, 0, byteLength));
     graph.node.port.postMessage(
         { type: "samples", runId, buffer, sampleCount },
         [buffer]);

@@ -72,3 +72,28 @@ start-to-output latency of approximately 8.6 ms. A warm replay measured approxim
 27.8 ms under automation; browser scheduling and the physical output device remain
 environment-dependent. The AudioContext/AudioWorkletNode identity stayed constant across
 stop and replay, and no application console errors were observed.
+
+## 2026-07-31 MP3 EncodingError Regression
+
+### Bounded Target Inventory
+
+- `samples/BrowserMusicPlayerDemo/wwwroot/music-decoder.js`: copies compressed bytes from a
+  managed `Span<byte>` before calling `decodeAudioData`.
+- `src/NAudio.BrowserAudioWorklet/wwwroot/naudio-audio-worklet.js`: copies rendered PCM bytes
+  from the same `JSType.MemoryView` boundary.
+- `tests/javascript/music-decoder.test.mjs` and `audio-worklet-transport.test.mjs`: JavaScript
+  boundary models and regression assertions.
+
+The .NET 10 browser runtime marshals `Span<byte>` as a `MemoryView` object with `copyTo`, `set`,
+and `slice`; it is not numerically indexed like a TypedArray. Passing that object as the source
+to `Uint8Array.set` converts missing numeric properties to zero. The user's MP3 files have valid
+ID3/MPEG headers, and a representative file decodes successfully when its original bytes are
+passed directly to Edge's `decodeAudioData`.
+
+### Acceptance Checklist
+
+- [x] `MusicPlayerDemo无法加载mp3音乐文件，抛出EncodingError`: compressed MP3 bytes are copied
+  through `MemoryView.copyTo` and remain byte-identical before browser decoding.
+- [x] The AudioWorklet transport uses the same correct source-memory copy path for PCM.
+- [x] TypedArray/array-like fallback behavior remains available for tests and compatible runtimes.
+- [x] A real MP3 from `F:\12312313` decodes through the final MusicPlayerDemo module in Edge.

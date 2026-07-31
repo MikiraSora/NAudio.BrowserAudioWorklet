@@ -99,7 +99,7 @@ const nodeCompatibleTransportSource = transportSource.replace(
 const transport = await import(
     `data:text/javascript;base64,${Buffer.from(nodeCompatibleTransportSource).toString("base64")}`);
 
-test("transport preserves one graph and accepts an array-like MemoryView", async () => {
+test("transport copies MemoryView bytes before transferring sample blocks", async () => {
     const handle = 101;
     const preparation = await transport.prepare(handle, 44100, 2, true);
     const secondPreparation = await transport.prepare(handle, 44100, 2, true);
@@ -113,14 +113,19 @@ test("transport preserves one graph and accepts an array-like MemoryView", async
     transport.beginStart(handle, 1, 960, 512, 0.004);
 
     const bytes = new Uint8Array(new Float32Array([0.25, -0.25, 0.5, -0.5]).buffer);
-    const memoryView = { length: bytes.length };
-    for (let index = 0; index < bytes.length; index++) {
-        memoryView[index] = bytes[index];
-    }
+    let copyCount = 0;
+    const memoryView = {
+        byteLength: bytes.byteLength,
+        copyTo(destination) {
+            copyCount++;
+            destination.set(bytes);
+        },
+    };
 
     transport.enqueue(handle, 1, memoryView, 2);
     const sampleMessage = node.port.messages.find(entry => entry.message.type === "samples");
     assert.ok(sampleMessage);
+    assert.equal(copyCount, 1);
     assert.deepEqual(
         [...new Uint8Array(sampleMessage.message.buffer, 0, bytes.length)],
         [...bytes]);
@@ -141,9 +146,14 @@ test("transport preserves one graph and accepts an array-like MemoryView", async
 
     const firstBuffer = sampleMessage.message.buffer;
     node.port.emit({ type: "recycle", buffer: firstBuffer });
-    transport.enqueue(handle, 1, bytes, 2);
+    const fallbackBytes = new Uint8Array(
+        new Float32Array([0.75, -0.75, 0.125, -0.125]).buffer);
+    transport.enqueue(handle, 1, fallbackBytes, 2);
     const sampleMessages = node.port.messages.filter(entry => entry.message.type === "samples");
     assert.equal(sampleMessages[1].message.buffer, firstBuffer);
+    assert.deepEqual(
+        [...new Uint8Array(sampleMessages[1].message.buffer, 0, fallbackBytes.length)],
+        [...fallbackBytes]);
 
     await transport.stop(handle, 1);
     assert.equal(FakeAudioContext.instances[0].state, "suspended");

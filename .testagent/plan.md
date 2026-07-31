@@ -48,3 +48,16 @@ the browser build, NuGet package asset checks, package-only publish, and the liv
 
 Implementation order: update the fake bridge, add focused NUnit cases, build/test the test
 project, perform an inline gap/assertion review, then run solution and browser validation.
+
+## MP3 EncodingError Fix Plan
+
+| Requirement | Planned evidence |
+| --- | --- |
+| Preserve compressed bytes from .NET `MemoryView` | `decoder copies compressed bytes through MemoryView.copyTo before decoding` |
+| Preserve rendered PCM bytes from .NET `MemoryView` | `transport copies MemoryView bytes before transferring sample blocks` |
+| Retain fallback compatibility | Existing array-like cases remain covered in both JavaScript test files |
+| Decode an actual user MP3 | Live Edge module decode using `F:\12312313\Fantasy Kaleidoscope ~The Memories of Phantasm~.mp3` |
+
+Implementation order: replace source-side `TypedArray.set(memoryView)` with a small helper that
+prefers `memoryView.copyTo(target)`, update the test doubles to match the real .NET 10 contract,
+run focused Node tests, then build and validate the browser demo with an actual MP3.

@@ -15,11 +15,19 @@ function getEntry(handle) {
     return entry;
 }
 
+function copyFromMemoryView(source, destination) {
+    if (typeof source.copyTo === "function") {
+        source.copyTo(destination);
+    } else {
+        destination.set(source);
+    }
+}
+
 // The MemoryView is valid only for this synchronous interop call, so the file bytes
 // are copied here before the asynchronous decode starts.
 export function setFileData(handle, data, byteLength) {
     const bytes = new Uint8Array(byteLength);
-    bytes.set(data);
+    copyFromMemoryView(data, bytes);
     entries.set(handle, { bytes, pcm: null });
 }
 
