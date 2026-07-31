@@ -16,6 +16,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly DelegateCommand pauseCommand;
     private readonly AsyncCommand stopCommand;
     private readonly AsyncCommand resetConsumedCommand;
+    private readonly AsyncCommand measureLatencyCommand;
     private readonly DispatcherTimer consumedTimer;
     private PlaybackState playbackState;
     private string status = "Ready";
@@ -24,6 +25,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private long totalConsumedFrameCount;
     private long totalConsumedSampleCount;
     private TimeSpan totalConsumedTime;
+    private bool measuringLatency;
     private bool disposed;
 
     public MainViewModel()
@@ -41,12 +43,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         player.PlaybackStopped += OnPlaybackStopped;
         _ = PreparePlayerAsync();
 
-        playCommand = new AsyncCommand(PlayAsync, () => playbackState != PlaybackState.Playing);
+        playCommand = new AsyncCommand(
+            PlayAsync,
+            () => !measuringLatency && playbackState != PlaybackState.Playing);
         pauseCommand = new DelegateCommand(Pause, () => playbackState == PlaybackState.Playing);
         stopCommand = new AsyncCommand(StopAsync, () => playbackState != PlaybackState.Stopped);
         resetConsumedCommand = new AsyncCommand(
             ResetConsumedAsync,
             () => !disposed);
+        measureLatencyCommand = new AsyncCommand(
+            MeasureLatencyAsync,
+            () => !disposed && !measuringLatency && playbackState == PlaybackState.Stopped);
         consumedTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         consumedTimer.Tick += OnConsumedTimerTick;
         consumedTimer.Start();
@@ -61,6 +68,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand StopCommand => stopCommand;
 
     public ICommand ResetConsumedCommand => resetConsumedCommand;
+
+    public ICommand MeasureLatencyCommand => measureLatencyCommand;
 
     public string Status
     {
@@ -189,6 +198,32 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private async Task MeasureLatencyAsync()
+    {
+        SetLatencyMeasurementRunning(true);
+        Status = "Measuring muted first-frame latency...";
+        try
+        {
+            TimeSpan latency = await LatencyMeasureHelper.MeasureLatency(
+                BrowserAudioWorkletOptions.ForProfile(BrowserAudioLatencyProfile.Interactive));
+            if (!disposed)
+            {
+                Status = $"First-frame latency: {latency.TotalMilliseconds:F1} ms";
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!disposed)
+            {
+                Status = $"Latency measurement failed: {RootMessage(ex)}";
+            }
+        }
+        finally
+        {
+            SetLatencyMeasurementRunning(false);
+        }
+    }
+
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
         RefreshConsumed();
@@ -226,6 +261,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         playCommand.RaiseCanExecuteChanged();
         pauseCommand.RaiseCanExecuteChanged();
         stopCommand.RaiseCanExecuteChanged();
+        measureLatencyCommand.RaiseCanExecuteChanged();
+    }
+
+    private void SetLatencyMeasurementRunning(bool value)
+    {
+        measuringLatency = value;
+        playCommand.RaiseCanExecuteChanged();
+        measureLatencyCommand.RaiseCanExecuteChanged();
     }
 
     private static string RootMessage(Exception error)

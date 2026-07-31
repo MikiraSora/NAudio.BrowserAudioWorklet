@@ -119,3 +119,128 @@ skips, `.only` tests, tautological self-comparisons, or unawaited async assertio
 - `eng/Test-Package.ps1` packed version 0.1.0, restored the package-only demo from the local
   NuGet package, and completed its Release build plus AOT publish with 0 warnings and 0 errors.
 - The package-only demo still contains no references to the cumulative-consumption API.
+
+## 2026-07-31 LatencyMeasureHelper Final Result
+
+The latency helper implementation and its bounded test suite are complete.
+
+### Clean validation
+
+- Release solution build: 5 projects built with 0 warnings and 0 errors.
+- NUnit/Microsoft Testing Platform: 90 passed, 0 failed, 0 skipped. The new
+  `LatencyMeasureHelperTests` contributes 13 cases covering API shape, averaging, lifecycle,
+  source reset, option forwarding, errors, timeouts, argument validation, and non-browser use.
+- Complete Node suite: 14 passed, 0 failed. The transport test pins the pre-resume timestamp,
+  observed first-frame latency, existing output-estimate semantics, run isolation, and stale-node
+  isolation.
+- Both shipping AudioWorklet JavaScript files passed `node --check`.
+- `eng/Test-Package.ps1` completed successfully after the initial AOT cache warm-up. The consumer
+  resolved `NAudio.BrowserAudioWorklet/0.1.0` as a NuGet `package`, built in Release with 0 warnings
+  and 0 errors, and completed WebAssembly AOT publish. The package contains both static Worklet
+  assets.
+- Live Edge acceptance used an untracked temporary copy of the existing demo and a real click
+  gesture. The six-run helper completed with a non-negative 6.6 ms result and no application-origin
+  console warning or error. The automation environment cannot independently attest physical sound
+  output. The temporary browser tab, server on port 5297, and temporary demo directory were closed
+  and removed after the check; no tracked demo source was changed.
+- Workspace checks: `git diff --check` passed; no microphone or acoustic-loopback API was added.
+
+### Pseudo-mutation and assertion review
+
+- Killed: including the warmup in the average (`4.2 ms` instead of the asserted `4 ms`).
+- Killed: resetting the probe only for the first run (later-run sample/reset assertions failed).
+- Killed: recording `performance.now()` after `AudioContext.resume()` (reported `7.5 ms` instead of
+  the asserted `12.5 ms`).
+- Killed: removing stale-node filtering (the old node completed or polluted the replacement run).
+- One candidate mutation that removed `naturallyStopped.Task` from the explicit `Task.WhenAll`
+  survived because the player's own `Playing` state prevents a following run from advancing when
+  the natural-stop callback is absent. The mutation was reverted; production retains the explicit
+  first-frame-plus-natural-stop wait, and both missing-event timeout cases pass. This is recorded as
+  a behaviorally redundant survivor rather than a perfect mutation score.
+- Assertion-quality review found exact equality, approximate signal-value, reflection/API-shape,
+  exception identity/type, timeout, negative isolation, collection length, and lifecycle side-effect
+  assertions. None of the new tests is assertion-free or trivial-only.
+
+### Commands
+
+```powershell
+dotnet build .\NAudio.BrowserAudioWorklet.slnx -c Release
+dotnet test --project .\tests\NAudio.BrowserAudioWorklet.Tests\NAudio.BrowserAudioWorklet.Tests.csproj -c Release
+node --test .\tests\javascript\*.test.mjs
+node --check .\src\NAudio.BrowserAudioWorklet\wwwroot\naudio-audio-worklet.js
+node --check .\src\NAudio.BrowserAudioWorklet\wwwroot\naudio-audio-worklet-processor.js
+.\eng\Test-Package.ps1
+git diff --check
+```
+
+| Requirement | Evidence |
+| --- | --- |
+| `public static Task<TimeSpan> MeasureLatency(BrowserAudioWorkletOptions options);` | `MeasureLatency_PublicApi_UsesBrowserOptionsAndHasNoAliasOrPublicTimingProperty` |
+| `先执行 1 次预热并丢弃结果，再执行 5 次正式测量` | `MeasureLatency_AveragesFiveRunsAfterWarmup_UsesOnePlayerAndResetsProbe` asserts six starts and an exact 4 ms mean from scripted values 1..6 ms. |
+| `播放器、AudioContext 和 WorkletNode 在全部测量间复用，结束后确定性释放。` | The same managed test asserts one prepare, six starts, and one dispose; live Edge completed the helper and the temporary session was cleaned. |
+| `探测源固定为 48 kHz、双声道、440 Hz、增益 0.2 的 Sin 波，每次持续 100 ms` | The managed test asserts 48 kHz, two channels, 4,800 frames/9,600 samples, gain/frequency sample values, and identical reset starts for all six runs. |
+| `每个 run 同时等待首帧和自然停止；10 秒内未收到所需事件时抛出 TimeoutException。` | `MeasureLatency_WhenRequiredEventIsMissing_ThrowsTimeoutAndReleasesPlayer` covers each missing event; `MeasureLatency_PropagatesNaturalStopFailureAndReleasesPlayer` covers stop failure. |
+| `起点是在 JavaScript resume(handle) 调用 AudioContext.resume() 前记录的 performance.now()` | `transport measures resume-to-first-frame latency per run and ignores stale nodes` advances the clock inside fake `resume()` and asserts the pre-resume boundary exactly. |
+| `现有 EstimatedStartToOutputLatencySeconds 语义保持不变。` | The same transport test separately asserts the existing `startToOutputLatency` event and metrics value (`0.0525`). |
+| `不增加额外公开诊断属性。` | Public API reflection asserts no public `ObservedResumeToFirstFrameLatency` property exists while the helper consumes the internal value. |
+| `null options 抛出 ArgumentNullException；非法 option 沿用播放器验证；非 Browser/WASM 目标抛出 PlatformNotSupportedException。` | `MeasureLatency_NullOptions_ThrowsArgumentNullExceptionBeforePlatformCheck`, four `MeasureLatency_InvalidOptions_UsesPlayerValidation` cases, and `MeasureLatency_OnNonBrowserTarget_ThrowsPlatformNotSupportedException`. |
+| `README 明确说明调用方式、六个可听短音、计时边界、自动播放前提和“不代表扬声器实际出声时间”。` | Root README and package README contain the click/touch example, six-probe description, timing boundary, autoplay prerequisite, and speaker-latency exclusion. |
+| `不修改现有 Demo UI，也不引入麦克风权限或声学回环。` | Final `git diff --name-only` contains no tracked demo file; source audit found no microphone or loopback additions. |
+
+## 2026-07-31 Silent Probe and Demo Button Addendum
+
+This addendum supersedes the earlier audible-probe and no-Demo-change assumptions.
+
+### Result
+
+- `LatencyMeasureHelper` keeps the real 48 kHz stereo 440 Hz / 0.2 source probe but sets the
+  temporary player's output volume to exactly `0.0f` before preparation. All six runs therefore
+  exercise real non-zero source frames through the AudioWorklet while the GainNode output is muted.
+- `BrowserAudioWorkletDemo` now exposes a compiled-binding **Measure latency (silent)** button.
+  Its command prevents normal playback from starting concurrently, shows an in-progress status,
+  invokes the helper with the Interactive options, displays the result in milliseconds, and reports
+  the root failure message.
+- The root README and package README now describe muted probes and the Demo button; they no longer
+  claim that six audible tones are produced.
+
+### Test-gap and assertion review
+
+- Empirical mutation: changing the helper output volume from `0.0f` to `1.0f` caused
+  `MeasureLatency_UsesZeroOutputGainBeforeEveryRunWhileRenderingNonZeroProbeFrames` to fail on both
+  the complete volume history and all six per-start volume values. The mutation was reverted and
+  the same focused test returned green.
+- The mute test also asserts the expected non-zero second sine sample, 4,800 frames / 9,600 samples
+  per run, six starts, one prepare, one dispose, and the exact five-run average. This prevents an
+  all-zero source from satisfying the mute requirement accidentally.
+- Assertion categories used by the new/strengthened test include equality, collection, comparison,
+  approximate floating-point, and lifecycle/state side effects. It is neither assertion-free nor
+  trivial-only and contains no self-referential assertion.
+- Static pairing scan: 112 source files, 11 test files, 25 paired source files, 87 unpaired source
+  files, and one orphan test. `LatencyMeasureHelper.cs` pairs to `LatencyMeasureHelperTests.cs`;
+  generated `artifacts/` files dominate the unpaired list. This is a static heuristic, not line or
+  branch coverage.
+
+### Browser acceptance
+
+- The tracked Demo was built and opened in Edge at `http://127.0.0.1:5287/`.
+- The button was visible, clickable, repeatable, and displayed `First-frame latency: 6.6 ms`.
+- Application-origin console errors/warnings: none.
+- Chrome Web Audio lifecycle events showed one temporary 48 kHz context cycling through the six
+  running/suspended runs and finally reaching `contextState: closed`.
+- Physical sound cannot be sensed by browser automation; silence is pinned at the managed-to-Web
+  Audio boundary by the zero-volume test above. The browser tab and local server were closed.
+
+### Clean validation
+
+- Focused latency tests: 13 passed, 0 failed, 0 skipped.
+- Full NUnit/Microsoft Testing Platform suite: 90 passed, 0 failed, 0 skipped.
+- Complete Node suite: 14 passed, 0 failed.
+- Release solution build: 0 warnings, 0 errors, including the Demo compiled XAML bindings.
+- Both shipping Worklet files passed `node --check`.
+- `eng/Test-Package.ps1` completed package restore, Release build, and WebAssembly AOT publish with
+  0 warnings and 0 errors.
+
+| Requirement | Evidence |
+| --- | --- |
+| `测试不应该发出音量` | `MeasureLatency_UsesZeroOutputGainBeforeEveryRunWhileRenderingNonZeroProbeFrames` asserts zero gain for every run while retaining non-zero sine PCM; the `1.0f` mutation was empirically killed. |
+| `为Demo添加按钮可以测试这个功能` | `MainView.axaml` binds **Measure latency (silent)** to `MeasureLatencyCommand`; Release compiled-binding build passed, and the Edge acceptance click displayed `First-frame latency: 6.6 ms` with no app console error and a final closed AudioContext. |

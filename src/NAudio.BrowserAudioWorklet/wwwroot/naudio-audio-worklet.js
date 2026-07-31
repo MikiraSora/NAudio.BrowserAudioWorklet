@@ -244,6 +244,8 @@ export async function prepare(handle, requestedSampleRate, channels, useDeviceSa
         gain: new GainNode(context, { gain: 1.0 }),
         preparationPromise: null,
         runId: 0,
+        resumeRunId: 0,
+        resumePerformanceTime: 0,
         pendingDemand: null,
         resolveDemand: null,
         rejectDemand: null,
@@ -313,6 +315,8 @@ function beginRun(
     resolveEventsAsStopped(graph);
     resolveDrainAsStopped(graph);
     graph.runId = runId;
+    graph.resumeRunId = 0;
+    graph.resumePerformanceTime = 0;
     graph.runStartPerformanceTime = performance.now() -
         Math.max(0, requestLeadTimeSeconds * 1000);
     graph.metrics = createMetrics();
@@ -392,6 +396,7 @@ function recycleBuffer(graph, buffer) {
 }
 
 function onProcessorMessage(graph, nodeId, message) {
+    const observedPerformanceTime = message.type === "first-frame" ? performance.now() : 0;
     if (graph.disposed || nodeId !== graph.nodeId) {
         return;
     }
@@ -441,6 +446,10 @@ function onProcessorMessage(graph, nodeId, message) {
             resolve(frames);
         }
     } else if (message.type === "first-frame") {
+        const observedResumeToFirstFrameLatency = graph.resumeRunId === message.runId &&
+            Number.isFinite(graph.resumePerformanceTime)
+            ? Math.max(0, observedPerformanceTime - graph.resumePerformanceTime)
+            : 0;
         const startToOutputLatencySeconds = Math.max(
             0,
             (estimateOutputPerformanceTime(graph, message.contextTime) -
@@ -453,6 +462,7 @@ function onProcessorMessage(graph, nodeId, message) {
             type: "first-frame",
             contextTime: message.contextTime,
             startToOutputLatency: startToOutputLatencySeconds,
+            observedResumeToFirstFrameLatency,
         });
     } else if (message.type === "underrun") {
         graph.metrics.underrunCount++;
@@ -573,7 +583,10 @@ export function pause(handle) {
 }
 
 export function resume(handle) {
-    return getGraph(handle).context.resume();
+    const graph = getGraph(handle);
+    graph.resumeRunId = graph.runId;
+    graph.resumePerformanceTime = performance.now();
+    return graph.context.resume();
 }
 
 export function setVolume(handle, volume) {

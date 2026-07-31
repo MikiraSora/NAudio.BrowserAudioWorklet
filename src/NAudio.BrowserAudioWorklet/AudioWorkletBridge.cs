@@ -25,6 +25,7 @@ internal sealed partial class AudioWorkletBridge : IAudioWorkletBridge
     private readonly object sync = new();
     private readonly int handle = Interlocked.Increment(ref nextHandle);
     private Task<AudioWorkletPreparation> preparationTask;
+    private Task disposalTask;
     private float[] renderBuffer = Array.Empty<float>();
     private AudioRenderCallback renderFrames;
     private Action<Exception> onStopped;
@@ -315,7 +316,8 @@ internal sealed partial class AudioWorkletBridge : IAudioWorkletBridge
                         type,
                         message.GetPropertyAsDouble("contextTime"),
                         0,
-                        message.GetPropertyAsDouble("startToOutputLatency")),
+                        message.GetPropertyAsDouble("startToOutputLatency"),
+                        message.GetPropertyAsDouble("observedResumeToFirstFrameLatency")),
                     "underrun" => new AudioWorkletEvent(
                         type,
                         0,
@@ -545,13 +547,16 @@ internal sealed partial class AudioWorkletBridge : IAudioWorkletBridge
             : new BrowserAudioException(message, error);
 
     public void Dispose()
+        => _ = DisposeAsync();
+
+    public Task DisposeAsync()
     {
         Task<AudioWorkletPreparation> preparation;
         lock (sync)
         {
-            if (disposed)
+            if (disposalTask != null)
             {
-                return;
+                return disposalTask;
             }
 
             disposed = true;
@@ -560,9 +565,9 @@ internal sealed partial class AudioWorkletBridge : IAudioWorkletBridge
             graphStarted = false;
             paused = false;
             preparation = preparationTask;
+            disposalTask = DisposeGraphAsync(preparation);
+            return disposalTask;
         }
-
-        _ = DisposeGraphAsync(preparation);
     }
 
     private async Task DisposeGraphAsync(Task<AudioWorkletPreparation> preparation)

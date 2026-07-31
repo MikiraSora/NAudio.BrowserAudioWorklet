@@ -158,6 +158,12 @@ internal sealed class FakeAudioWorkletBridge : IAudioWorkletBridge
 
     public void Dispose() => DisposeCount++;
 
+    public Task DisposeAsync()
+    {
+        Dispose();
+        return Task.CompletedTask;
+    }
+
     public Task<BrowserAudioPlaybackMetrics> GetMetricsAsync() => Task.FromResult(Metrics);
 
     // --- Test driving surface -------------------------------------------------

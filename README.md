@@ -19,6 +19,8 @@ API — no Blazor, no plugins.
   first-frame/underrun telemetry.
 - Exposes exact AudioWorklet consumption progress in output frames, interleaved
   samples, and output-rate `TimeSpan` values, with an explicit asynchronous reset.
+- Measures AudioWorklet first-frame notification latency with one muted warmup
+  probe and five muted measured probes on a temporary, reusable browser audio graph.
 - Ships its JavaScript as static web assets: referencing the project (or the
   NuGet package) is enough — no manual `<script>` tag, no
   `AudioWorklet.addModule` call.
@@ -102,6 +104,39 @@ snapshot and never interpolate from a clock.
 For a source position, keep an application-owned start position and calculate
 `start position + output.TotalConsumedTime`. Do not use the source/provider
 position directly: the player may have read ahead into the AudioWorklet queue.
+
+## Measure first-frame notification latency
+
+Call `LatencyMeasureHelper.MeasureLatency` after Web Audio playback has already
+been authorized, preferably directly from a click or touch handler. It creates
+one temporary `BrowserAudioWorkletPlayer` with the exact options supplied, reuses
+its `AudioContext` and `AudioWorkletNode`, and then closes them before completing.
+
+```csharp
+measureButton.Click += async (_, _) =>
+{
+    TimeSpan latency = await LatencyMeasureHelper.MeasureLatency(
+        BrowserAudioWorkletOptions.ForProfile(BrowserAudioLatencyProfile.Interactive));
+
+    Console.WriteLine($"AudioWorklet first-frame notification: {latency.TotalMilliseconds:F1} ms");
+};
+```
+
+The call renders six muted 100 ms, 440 Hz sine-wave probes: one warmup whose
+result is discarded, then five runs whose arithmetic mean is returned. The
+source remains a real non-zero sine wave, while the temporary player's output
+volume is fixed at zero so the measurement should not produce an audible tone.
+Timing starts immediately before JavaScript calls `AudioContext.resume()` and
+ends when the main-thread transport receives the processor's `first-frame`
+message, so it includes Worklet-to-main-thread message delivery. It does not
+measure the Web Audio output chain or physical device latency and therefore does
+not represent the time at which a speaker actually produces sound. The muted
+measurement still requires normal Web Audio authorization; autoplay or Web
+Audio failures propagate through the same browser exception path as normal
+player startup.
+
+`samples/BrowserAudioWorkletDemo` includes a **Measure latency (silent)** button
+that invokes the helper from the click handler and displays the returned value.
 
 ## Deployment
 

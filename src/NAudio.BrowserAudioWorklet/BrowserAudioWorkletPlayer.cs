@@ -93,7 +93,13 @@ public sealed class BrowserAudioWorkletPlayer : IWavePlayer
     internal BrowserAudioWorkletPlayer(IAudioWorkletBridge bridge, BrowserAudioWorkletOptions options)
     {
         this.bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
-        this.options = options ?? throw new ArgumentNullException(nameof(options));
+        ValidateOptions(options);
+        this.options = options;
+    }
+
+    internal static void ValidateOptions(BrowserAudioWorkletOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
 
         if (options.BufferDurationMilliseconds < MinimumBufferDurationMilliseconds ||
             options.BufferDurationMilliseconds > MaximumBufferDurationMilliseconds)
@@ -667,6 +673,7 @@ public sealed class BrowserAudioWorkletPlayer : IWavePlayer
                 new BrowserAudioFirstFrameEventArgs(
                     workletEvent.ContextTimeSeconds,
                     workletEvent.EstimatedStartToOutputLatencySeconds,
+                    workletEvent.ObservedResumeToFirstFrameLatencyMilliseconds,
                     latency));
         }
         else if (workletEvent.Type == "underrun")
@@ -717,20 +724,30 @@ public sealed class BrowserAudioWorkletPlayer : IWavePlayer
     /// <inheritdoc />
     public void Dispose()
     {
+        if (TryBeginDispose())
+        {
+            bridge.Dispose();
+        }
+    }
+
+    internal Task DisposeAsync()
+        => TryBeginDispose() ? bridge.DisposeAsync() : Task.CompletedTask;
+
+    private bool TryBeginDispose()
+    {
         lock (sync)
         {
             if (isDisposed)
             {
-                return;
+                return false;
             }
 
             isDisposed = true;
             playbackState = PlaybackState.Stopped;
             activeRunId = 0;
             transportTask = Task.CompletedTask;
+            return true;
         }
-
-        bridge.Dispose();
     }
 
     private void ThrowIfDisposed()

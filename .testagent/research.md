@@ -188,3 +188,169 @@ This is static pairing evidence, not line coverage.
   stale node isolation, graph failure, and disposal are covered by the focused transport tests.
 - [x] Only `tests/**` and `.testagent/**` were changed by this testing subtask; narrow commands are
   recorded in `.testagent/status.md`.
+
+## 2026-07-31 LatencyMeasureHelper Research
+
+### Bounded target inventory
+
+- Planned production type: `src/NAudio.BrowserAudioWorklet/LatencyMeasureHelper.cs` in
+  namespace `NAudio.Wave.Browser`. It was absent when this Research pass began; any implementation
+  now visible in the shared working tree belongs to the parallel implementation agent.
+- Managed transport seam: `BrowserAudioWorkletPlayer.cs`, `IAudioWorkletBridge.cs`,
+  `BrowserAudioDiagnostics.cs`, and `BrowserAudioWorkletOptions.cs`.
+- Existing managed tests: `tests/NAudio.BrowserAudioWorklet.Tests/BrowserAudioWorkletPlayerLatencyTests.cs`,
+  `BrowserAudioWorkletPlayerPlaybackTests.cs`, `BrowserAudioWorkletPlayerTests.cs`,
+  `FakeAudioWorkletBridge.cs`, and `TestSampleProvider.cs`.
+- Main-thread transport: `src/NAudio.BrowserAudioWorklet/wwwroot/naudio-audio-worklet.js`;
+  focused Node tests live in `tests/javascript/audio-worklet-transport.test.mjs`.
+- Audio-thread processor: `src/NAudio.BrowserAudioWorklet/wwwroot/naudio-audio-worklet-processor.js`;
+  syntax and existing behavior are covered by `tests/javascript/audio-worklet-processor.test.mjs`.
+- Documentation boundary: `src/NAudio.BrowserAudioWorklet/README.md`; the existing demos must
+  remain unchanged for this feature.
+
+### Static pairing evidence
+
+The required polyglot `find_untested_sources.py --include-tested` scan was run once against the
+repository root. It reported 111 source files, 10 test files, 24 statically paired source files,
+87 unpaired source files, one orphan test file, and languages `csharp`, `javascript`, and `python`.
+The result is a static identifier/import pairing heuristic, not line or branch coverage. Generated
+files under `artifacts/` account for most unpaired entries and are outside this bounded task.
+
+Relevant pairings from the report are already present for `BrowserAudioWorkletPlayer.cs` (the four
+player test files), `BrowserAudioDiagnostics.cs` and `BrowserAudioWorkletOptions.cs` (the latency
+tests), `IAudioWorkletBridge.cs` (the fake bridge), and both shipping worklet modules (the focused
+processor/transport Node tests). The new helper has no analyzer entry until its production source
+exists; the established test location is `tests/NAudio.BrowserAudioWorklet.Tests/LatencyMeasureHelperTests.cs`.
+
+### Existing conventions and constraints
+
+- The test project targets plain `net10.0`, uses NUnit 4 with the Microsoft Testing Platform, and
+  marks unit fixtures with `[Category("UnitTest")]`. Assertions use `Assert.That` and
+  `Assert.Multiple`; asynchronous tests return `Task` and avoid sleeps.
+- `NAudio.BrowserAudioWorklet.csproj` grants `InternalsVisibleTo` to the test assembly. The
+  internal `BrowserAudioWorkletPlayer(IAudioWorkletBridge, BrowserAudioWorkletOptions)` constructor
+  and `IAudioWorkletBridge` are therefore the existing injection seam.
+- The public player constructor calls `CreateDefaultBridge()` and throws
+  `PlatformNotSupportedException` on the non-browser target. A managed helper test cannot call the
+  public constructor on `net10.0`; it needs an internal overload/core that accepts one injected
+  `IAudioWorkletBridge` while the public method keeps the browser-only branch.
+- `FakeAudioWorkletBridge` already records prepare/start/stop/dispose counts, options-derived
+  transport values, render callbacks, stop callbacks, and event callbacks. A deterministic
+  scripted hook (or a test-local implementation of `IAudioWorkletBridge`) can render a complete
+  probe, emit a first-frame event, and signal natural stop for each run without a browser.
+- The current `AudioWorkletEvent` carries first-frame context time and the existing
+  start-to-output estimate. The current `BrowserAudioFirstFrameEventArgs` constructor is internal
+  and exposes only output-facing public properties. The new resume-to-first-frame value should be
+  an internal field/property (milliseconds or explicitly named seconds) and must not become a
+  public diagnostics property.
+- `AudioWorkletBridge.EventLoop` reads the first-frame message on the main thread and
+  `BrowserAudioWorkletPlayer.OnBridgeEvent` filters stale run IDs before raising the event. The
+  helper must subscribe to both `FirstFrameRendered` and `PlaybackStopped`, reuse one player for
+  all six runs, and dispose it in success, error, and timeout paths.
+- `naudio-audio-worklet.js` currently resets `graph.runId`/metrics in `beginRun`, calls
+  `context.resume()` directly from `resume`, calculates the existing
+  `startToOutputLatency`, and rejects messages from disposed or stale node IDs/run IDs. A new
+  per-run resume timestamp must be cleared by `beginRun`, recorded immediately before
+  `context.resume()`, and only used for a matching first-frame message. The existing output
+  estimate must remain unchanged.
+
+### Deterministic managed fixture
+
+The proposed bridge script uses six run entries: one warmup value followed by five measured
+values. Each entry requests all samples until the source returns zero, emits a first-frame event
+with a controlled observed latency, and invokes the natural-stop callback. It records every start,
+rendered sample sequence, option-derived buffer setting, and disposal call. This allows tests to
+prove that the source was reset before every run, that six runs occurred on one prepared graph, and
+that the warmup value is excluded from the arithmetic mean. Timeout scripts intentionally omit one
+of the two required callbacks and use an internal short deadline; the public browser deadline
+remains 10 seconds.
+
+The fixed source contract to assert is 48,000 Hz, two channels, 440 Hz sine, gain 0.2, and exactly
+100 ms (4,800 frames / 9,600 interleaved samples) per run. Comparing the first samples and full
+sequences of consecutive runs proves reset behavior without relying on wall-clock audio output.
+
+### Acceptance checklist for this feature
+
+- [ ] Public API is exactly `public static Task<TimeSpan> MeasureLatency(BrowserAudioWorkletOptions options)`;
+  no `AudioWorkletOptions` alias is added.
+- [ ] `null` options fail with `ArgumentNullException`; invalid buffer/initial-frame options use
+  the existing player validation; valid calls on the non-browser target fail with
+  `PlatformNotSupportedException`.
+- [ ] The helper forwards the same option values to one temporary player/graph, prepares once,
+  starts exactly six runs, and deterministically disposes resources on every exit path.
+- [ ] Every run resets the fixed 48 kHz stereo 440 Hz / 0.2 / 100 ms probe source.
+- [ ] One warmup is discarded and the returned value is the arithmetic mean of exactly five
+  measured `TimeSpan` values.
+- [ ] Each run requires both first-frame and natural-stop notifications; missing either event for
+  the deadline raises `TimeoutException`.
+- [ ] Autoplay/start and natural-stop/transport errors propagate as the original browser error,
+  without an extra helper wrapper.
+- [ ] JavaScript records `performance.now()` immediately before `AudioContext.resume()`, reports
+  the matching run's observed resume-to-first-frame latency, preserves the existing output-latency
+  estimate, isolates run generations, and ignores stale-node messages.
+- [ ] The new timing value reaches the helper through internal event data only; no extra public
+  diagnostics property is exposed.
+- [ ] Superseded by the silent-probe and Demo-button addendum below: the earlier requirement for
+  six audible tones and no Demo UI change no longer applies.
+- [ ] Release build, NUnit, all Node tests, both worklet `node --check` commands, and the local
+  NuGet package consumer remain green; superseded browser acceptance is now covered by the silent
+  Demo scenario below.
+
+## 2026-07-31 Silent Probe and BrowserAudioWorkletDemo Addendum
+
+This addendum supersedes the earlier audible-probe and no-Demo-change assumptions. The new user
+requirements are that latency measurement must not produce audible output and that
+`samples/BrowserAudioWorkletDemo` must expose a button which invokes the helper and displays the
+result.
+
+### Current implementation findings
+
+- `LatencyMeasureHelper` currently creates a 48 kHz stereo 440 Hz sine provider with source gain
+  0.2 and leaves `BrowserAudioWorkletPlayer.Volume` at its unity default. The source therefore
+  reaches the Web Audio `GainNode` at an audible level. The XML comments and both README files also
+  describe six audible probes.
+- Keeping non-zero source samples is useful: the processor still copies real frames and emits its
+  normal first-frame message. The correct mute boundary is the temporary player's output gain,
+  set to `0.0f` before the first `PlayAsync`/`AudioContext.resume()` call. Muting by replacing the
+  source with zero samples would not prove the output gain contract and would weaken the probe.
+- `LatencyMeasureHelperTests.MeasureLatency_AveragesFiveRunsAfterWarmup_UsesOnePlayerAndResetsProbe`
+  already proves the generated PCM is non-zero, but its `LatencyMeasureBridge.SetVolume` method
+  discards every value. There is no assertion that the gain is zero before a run starts or remains
+  zero across all six runs.
+- `BrowserAudioWorkletDemo.MainViewModel` follows an `INotifyPropertyChanged` + private
+  `AsyncCommand` pattern and exposes `Status` as the existing status surface. `MainView.axaml` has
+  `x:DataType="local:MainViewModel"`, and the project enables compiled bindings by default, so a
+  Release build is a strong check that a new command and result/status binding refer to real CLR
+  properties.
+- The Demo currently has no test project. It targets only `net10.0-browser`, directly constructs a
+  browser player in the ViewModel constructor, and would throw on the existing plain `net10.0`
+  NUnit target. A deterministic ViewModel unit test therefore requires an injected measurement
+  delegate/service and a platform-neutral test compilation boundary. Without that production seam,
+  the honest evidence is compiled-XAML build plus a browser interaction smoke test.
+
+### Updated static pairing evidence
+
+The required polyglot pairing scan was rerun once for this expanded scope. It reported 112 source
+files, 11 test files, 25 statically paired source files, 87 unpaired source files, and one orphan
+test. `LatencyMeasureHelper.cs` is paired to `LatencyMeasureHelperTests.cs`. Generated files under
+`artifacts/` again dominate the unpaired list. The 40-entry unpaired limit was exhausted by those
+artifacts, so the scan did not emit a suggested path for `MainViewModel.cs`; independently, the
+repository contains no Demo test project or test reference to that type. This remains a static
+pairing heuristic, not coverage evidence.
+
+### Revised acceptance checklist
+
+- [ ] The helper renders the existing non-zero 48 kHz stereo probe, but the temporary player's
+  output gain is `0.0f` before every start/resume and never returns to unity during measurement.
+- [ ] All six runs remain observable to the AudioWorklet and the latency average/lifecycle behavior
+  remains unchanged while muted.
+- [ ] Public and package README text no longer claims that the probes are audible; browser
+  acceptance explicitly expects silence.
+- [ ] `BrowserAudioWorkletDemo.MainViewModel` exposes a measurement command that directly invokes
+  `LatencyMeasureHelper.MeasureLatency` with explicit options from the button gesture.
+- [ ] The command publishes an in-progress state, displays the completed non-negative result in
+  milliseconds, and reports the root error message on failure while becoming executable again.
+- [ ] `MainView.axaml` contains a visible latency-measurement button and a compiled binding to the
+  command and result/status surface.
+- [ ] The Demo Release build succeeds, the button works in a browser, measurement is silent, the
+  result is displayed, and no AudioContext or console error remains after completion.

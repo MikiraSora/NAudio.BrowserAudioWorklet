@@ -26,7 +26,8 @@ internal readonly record struct AudioWorkletEvent(
     string Type,
     double ContextTimeSeconds,
     long MissingFrames,
-    double EstimatedStartToOutputLatencySeconds = 0);
+    double EstimatedStartToOutputLatencySeconds = 0,
+    double ObservedResumeToFirstFrameLatencyMilliseconds = 0);
 
 /// <summary>
 /// Transport seam between <see cref="BrowserAudioWorkletPlayer"/> and the browser's Web Audio
@@ -95,4 +96,7 @@ internal interface IAudioWorkletBridge : IDisposable
     Task ResetTotalConsumedAsync();
 
     Task<BrowserAudioPlaybackMetrics> GetMetricsAsync();
+
+    /// <summary>Closes the browser graph and completes after its AudioContext has closed.</summary>
+    Task DisposeAsync();
 }

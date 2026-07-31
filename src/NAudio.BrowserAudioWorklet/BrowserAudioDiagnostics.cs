@@ -27,11 +27,14 @@ public sealed class BrowserAudioFirstFrameEventArgs : EventArgs
     internal BrowserAudioFirstFrameEventArgs(
         double contextTimeSeconds,
         double estimatedStartToOutputLatencySeconds,
+        double observedResumeToFirstFrameLatencyMilliseconds,
         BrowserAudioLatencyInfo latency)
     {
         ContextTimeSeconds = contextTimeSeconds;
         EstimatedOutputTimeSeconds = contextTimeSeconds + latency.EstimatedDeviceLatencySeconds;
         EstimatedStartToOutputLatencySeconds = estimatedStartToOutputLatencySeconds;
+        ObservedResumeToFirstFrameLatency = TimeSpan.FromMilliseconds(
+            observedResumeToFirstFrameLatencyMilliseconds);
     }
 
     /// <summary>AudioContext time at the first rendered frame.</summary>
@@ -45,6 +48,8 @@ public sealed class BrowserAudioFirstFrameEventArgs : EventArgs
     /// to the first source frame reaching the output device.
     /// </summary>
     public double EstimatedStartToOutputLatencySeconds { get; }
+
+    internal TimeSpan ObservedResumeToFirstFrameLatency { get; }
 }
 
 /// <summary>Raised when the processor recovers from an output buffer underrun.</summary>

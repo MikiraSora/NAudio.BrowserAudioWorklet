@@ -28,11 +28,13 @@ class FakeAudioContext {
         this.state = "suspended";
         this.destination = {};
         this.currentTime = 0;
+        this.onResume = null;
         this.audioWorklet = { addModule: async () => undefined };
         FakeAudioContext.instances.push(this);
     }
 
     async resume() {
+        this.onResume?.();
         this.state = "running";
     }
 
@@ -86,6 +88,11 @@ class FakeGainNode {
 globalThis.AudioContext = FakeAudioContext;
 globalThis.AudioWorkletNode = FakeAudioWorkletNode;
 globalThis.GainNode = FakeGainNode;
+let controlledPerformanceNow = 1000;
+Object.defineProperty(globalThis, "performance", {
+    configurable: true,
+    value: { now: () => controlledPerformanceNow },
+});
 // Node is not a cross-origin isolated browsing context by default. Set the browser capability
 // explicitly so this module import exercises the SharedArrayBuffer + Atomics path; fallback tests
 // temporarily remove SharedArrayBuffer through createFallbackGraph below.
@@ -372,6 +379,70 @@ test("transport fallback orders concurrent resets and resolves each matching ack
         "consumption after the last reset starts again from zero");
     await stopWithSnapshot(fallbackTransport, node, handle, 1, 3n);
     await fallbackTransport.disposeGraph(handle);
+});
+
+test("transport measures resume-to-first-frame latency per run and ignores stale nodes", async () => {
+    const handle = 606;
+    const nodeIndex = FakeAudioWorkletNode.instances.length;
+    await transport.prepare(handle, 48000, 2, true);
+    const firstNode = FakeAudioWorkletNode.instances[nodeIndex];
+    const context = FakeAudioContext.instances[FakeAudioContext.instances.length - 1];
+    context.onResume = () => {
+        controlledPerformanceNow += 5;
+    };
+
+    controlledPerformanceNow = 100;
+    transport.beginStart(handle, 1, 960, 512, 0);
+    controlledPerformanceNow = 125;
+    await transport.resume(handle);
+    const firstEvent = transport.waitForEvent(handle, 1);
+    controlledPerformanceNow = 137.5;
+    firstNode.port.emit({ type: "first-frame", runId: 1, contextTime: 0 });
+    const observedFirstEvent = await firstEvent;
+    assert.equal(observedFirstEvent.observedResumeToFirstFrameLatency, 12.5);
+    assert.ok(Math.abs(observedFirstEvent.startToOutputLatency - 0.0525) < 1e-12,
+        "the existing request-to-estimated-output metric keeps its original boundary");
+    assert.ok(Math.abs(transport.getMetrics(handle).startToOutputLatencySeconds - 0.0525) < 1e-12);
+
+    controlledPerformanceNow = 200;
+    transport.beginStart(handle, 2, 960, 512, 0);
+    controlledPerformanceNow = 210;
+    await transport.resume(handle);
+    const secondEvent = transport.waitForEvent(handle, 2);
+    let secondResolved = false;
+    secondEvent.then(() => {
+        secondResolved = true;
+    });
+    controlledPerformanceNow = 211;
+    firstNode.port.emit({ type: "first-frame", runId: 1, contextTime: 0 });
+    await Promise.resolve();
+    assert.equal(secondResolved, false, "a previous run cannot complete the current run");
+    controlledPerformanceNow = 222;
+    firstNode.port.emit({ type: "first-frame", runId: 2, contextTime: 0 });
+    assert.equal((await secondEvent).observedResumeToFirstFrameLatency, 12);
+
+    firstNode.onprocessorerror();
+    const replacementIndex = FakeAudioWorkletNode.instances.length;
+    controlledPerformanceNow = 300;
+    transport.beginStart(handle, 3, 960, 512, 0);
+    const replacementNode = FakeAudioWorkletNode.instances[replacementIndex];
+    controlledPerformanceNow = 305;
+    await transport.resume(handle);
+    const thirdEvent = transport.waitForEvent(handle, 3);
+    let thirdResolved = false;
+    thirdEvent.then(() => {
+        thirdResolved = true;
+    });
+    controlledPerformanceNow = 306;
+    firstNode.port.emit({ type: "first-frame", runId: 3, contextTime: 0 });
+    await Promise.resolve();
+    assert.equal(thirdResolved, false, "a replaced node cannot publish into the new graph");
+    controlledPerformanceNow = 310;
+    replacementNode.port.emit({ type: "first-frame", runId: 3, contextTime: 0 });
+    assert.equal((await thirdEvent).observedResumeToFirstFrameLatency, 5);
+
+    await stopWithSnapshot(transport, replacementNode, handle, 3);
+    await transport.disposeGraph(handle);
 });
 
 test("transport isolates stale node snapshots and rejects pending resets on failure or disposal", async () => {

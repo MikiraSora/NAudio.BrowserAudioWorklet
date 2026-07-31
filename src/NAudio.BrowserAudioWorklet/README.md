@@ -11,6 +11,7 @@ The package exposes:
 | `BrowserAudioWorkletPlayer` | Persistent browser `IWavePlayer` for `IWaveProvider` and `ISampleProvider` sources |
 | `BrowserAudioWorkletOptions` | Explicit target-buffer, first-block, and device-rate settings |
 | `BrowserAudioLatencyProfile` | `Interactive`, `Balanced`, and `Playback` presets |
+| `LatencyMeasureHelper` | Six-probe measurement of resume-to-first-frame main-thread notification latency |
 | `ISeekableSampleProvider` | Optional source contract used by `SeekAsync` |
 | `BrowserAudioLatencyInfo` | Actual context sample rate and browser-reported latency |
 | `BrowserAudioPlaybackMetrics` | First-frame and underrun counters for the current run |
@@ -142,6 +143,45 @@ The first-frame estimate includes preparation time spent after `PlayAsync` was
 requested and maps the worklet's context timestamp to the output device when the
 browser exposes `getOutputTimestamp()`. Underruns count frames emitted as silence
 while the WebAssembly main thread could not refill the queue in time.
+
+## First-Frame Latency Measurement
+
+`LatencyMeasureHelper` measures a narrower startup boundary with a temporary real
+player. Invoke it after Web Audio has already been authorized and, where possible,
+directly from the click or touch handler that requests the measurement:
+
+```csharp
+measureButton.Click += async (_, _) =>
+{
+    TimeSpan latency = await LatencyMeasureHelper.MeasureLatency(
+        BrowserAudioWorkletOptions.ForProfile(BrowserAudioLatencyProfile.Interactive));
+
+    Console.WriteLine($"Resume-to-first-frame message: {latency.TotalMilliseconds:F1} ms");
+};
+```
+
+The helper strictly uses the supplied `BrowserAudioWorkletOptions`. It prepares
+one `BrowserAudioWorkletPlayer`, `AudioContext`, and `AudioWorkletNode`, then reuses
+them for six muted 100 ms probes generated at 48 kHz in stereo: a 440 Hz sine at
+0.2 source gain. The temporary player's output volume is fixed at zero, so the
+real source frames still exercise the Worklet without producing an audible tone.
+The first run warms the graph and is discarded; the returned `TimeSpan` is the
+arithmetic mean of the remaining five runs. The source is reset before every run,
+and all browser audio resources are closed before the task completes.
+
+Each run starts timing in JavaScript immediately before calling
+`AudioContext.resume()`. It stops when the main-thread transport receives the
+processor's `first-frame` message. The value therefore includes AudioWorklet-to-
+main-thread message delivery, but excludes the Web Audio output chain and physical
+device latency. It is not the time at which the speaker actually produces sound.
+The muted measurement still requires normal Web Audio authorization; autoplay
+and other startup errors propagate through the normal `BrowserAudioException`
+path. A run that does not produce both a first-frame notification and a natural
+stop within 10 seconds fails with `TimeoutException`.
+
+The source-reference `BrowserAudioWorkletDemo` includes a **Measure latency
+(silent)** button that invokes the helper directly and shows the measured value
+in its status panel.
 
 ## Exact Consumption Progress
 

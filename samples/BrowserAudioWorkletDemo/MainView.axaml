@@ -23,7 +23,8 @@
 
         <Border Grid.Row="2" Padding="24" Background="White" BorderBrush="#D8DEE1"
                 BorderThickness="1" CornerRadius="6">
-          <Grid RowDefinitions="Auto,28,Auto,24,Auto,28,Auto,24,Auto" ColumnDefinitions="*,Auto">
+          <Grid RowDefinitions="Auto,28,Auto,24,Auto,28,Auto,16,Auto,16,Auto"
+                ColumnDefinitions="*,Auto">
             <Grid Grid.ColumnSpan="2" ColumnDefinitions="*,*,*" ColumnSpacing="10">
               <Button Command="{Binding PlayCommand}" HorizontalAlignment="Stretch"
                       HorizontalContentAlignment="Center" Content="Play" />
@@ -61,7 +62,11 @@
                       Content="Reset consumed" />
             </Grid>
 
-            <Border Grid.Row="8" Grid.ColumnSpan="2" Padding="12,9" Background="#EAF4F1"
+            <Button Grid.Row="8" Grid.ColumnSpan="2" Command="{Binding MeasureLatencyCommand}"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Content="Measure latency (silent)" />
+
+            <Border Grid.Row="10" Grid.ColumnSpan="2" Padding="12,9" Background="#EAF4F1"
                     BorderBrush="#B9D7CE" BorderThickness="1" CornerRadius="4">
               <TextBlock Foreground="#174F43" Text="{Binding Status}" />
             </Border>
