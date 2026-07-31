@@ -734,7 +734,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        RefreshConsumed();
         UpdatePositionDisplay();
         if (seekPending)
         {
@@ -780,7 +779,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             : position > provider.Duration ? provider.Duration : position;
     }
 
-    private void RefreshConsumed()
+    internal void RefreshConsumed()
     {
         if (player == null || disposed)
         {
