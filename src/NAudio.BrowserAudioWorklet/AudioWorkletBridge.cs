@@ -431,6 +431,46 @@ internal sealed partial class AudioWorkletBridge : IAudioWorkletBridge
         }
     }
 
+    public long TotalConsumedFrameCount
+    {
+        get
+        {
+            lock (sync)
+            {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                if (!prepared)
+                {
+                    return 0;
+                }
+
+                int low = Interop.CaptureTotalConsumedFrameCountLow(handle);
+                int high = Interop.GetCapturedTotalConsumedFrameCountHigh(handle);
+                return ((long)high << 32) | (uint)low;
+            }
+        }
+    }
+
+    public Task ResetTotalConsumedAsync()
+    {
+        lock (sync)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            return prepared ? ResetTotalConsumedCoreAsync() : Task.CompletedTask;
+        }
+    }
+
+    private async Task ResetTotalConsumedCoreAsync()
+    {
+        try
+        {
+            await Interop.ResetTotalConsumedAsync(handle);
+        }
+        catch (Exception ex)
+        {
+            throw ToBrowserException("The consumed audio counter could not be reset.", ex);
+        }
+    }
+
     public async Task<BrowserAudioPlaybackMetrics> GetMetricsAsync()
     {
         await EnsureModuleAsync();

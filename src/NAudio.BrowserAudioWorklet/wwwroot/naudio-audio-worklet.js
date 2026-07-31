@@ -4,6 +4,7 @@
 
 const graphs = new Map();
 const MAX_RECYCLED_BUFFERS = 4;
+const CONSUMED_FRAME_STATE_WORDS = 3;
 
 function getGraph(handle) {
     const graph = graphs.get(handle);
@@ -23,6 +24,75 @@ function latencyInfo(graph) {
         baseLatency: Number.isFinite(graph.context.baseLatency) ? graph.context.baseLatency : 0,
         outputLatency: Number.isFinite(graph.context.outputLatency) ? graph.context.outputLatency : 0,
     };
+}
+
+function supportsSharedConsumedFrameState() {
+    return globalThis.crossOriginIsolated === true &&
+        typeof globalThis.SharedArrayBuffer === "function" &&
+        typeof globalThis.Atomics === "object";
+}
+
+function readSharedConsumedFrameState(state, fallback) {
+    // A writer only holds the odd sequence for three atomic stores. Keep the synchronous getter
+    // bounded as well, so a processor that failed mid-write cannot hang the WebAssembly thread.
+    for (let attempt = 0; attempt < 1024; attempt++) {
+        const sequenceBefore = Atomics.load(state, 0);
+        if ((sequenceBefore & 1) !== 0) {
+            continue;
+        }
+
+        const low = Atomics.load(state, 1) >>> 0;
+        const high = Atomics.load(state, 2) >>> 0;
+        const sequenceAfter = Atomics.load(state, 0);
+        if (sequenceBefore === sequenceAfter && (sequenceAfter & 1) === 0) {
+            return { low, high };
+        }
+    }
+
+    return fallback;
+}
+
+function currentConsumedFrameState(graph) {
+    if (graph.consumedFrameState) {
+        const snapshot = readSharedConsumedFrameState(graph.consumedFrameState, {
+            low: graph.consumedSnapshotLow,
+            high: graph.consumedSnapshotHigh,
+        });
+        graph.consumedSnapshotLow = snapshot.low;
+        graph.consumedSnapshotHigh = snapshot.high;
+    }
+
+    return {
+        low: graph.consumedSnapshotLow,
+        high: graph.consumedSnapshotHigh,
+    };
+}
+
+function subtractConsumedFrameState(value, baseline) {
+    const borrow = value.low < baseline.low ? 1 : 0;
+    return {
+        low: (value.low - baseline.low) >>> 0,
+        high: (value.high - baseline.high - borrow) >>> 0,
+    };
+}
+
+function updateConsumedSnapshot(graph, message) {
+    graph.consumedSnapshotLow = message.low >>> 0;
+    graph.consumedSnapshotHigh = message.high >>> 0;
+}
+
+function rejectPendingConsumedResets(graph, error) {
+    for (const pending of graph.pendingConsumedResets.values()) {
+        pending.reject(error);
+    }
+    graph.pendingConsumedResets.clear();
+}
+
+function rejectPendingStops(graph, error) {
+    for (const pending of graph.pendingStops.values()) {
+        pending.reject(error);
+    }
+    graph.pendingStops.clear();
 }
 
 function resolveDemandAsStopped(graph) {
@@ -54,6 +124,9 @@ function resolveDrainAsStopped(graph) {
 function closeGraph(graph) {
     graph.disposed = true;
     graph.runId = 0;
+    const disposalError = new Error("The browser audio graph has been disposed.");
+    rejectPendingConsumedResets(graph, disposalError);
+    rejectPendingStops(graph, disposalError);
     resolveDemandAsStopped(graph);
     resolveEventsAsStopped(graph);
     resolveDrainAsStopped(graph);
@@ -78,6 +151,8 @@ function failGraph(graph, error) {
     }
 
     graph.error = error instanceof Error ? error : new Error(String(error));
+    rejectPendingConsumedResets(graph, graph.error);
+    rejectPendingStops(graph, graph.error);
     if (graph.rejectDemand) {
         graph.rejectDemand(graph.error);
         graph.resolveDemand = null;
@@ -96,13 +171,32 @@ function failGraph(graph, error) {
 }
 
 function createNode(graph) {
+    const initialConsumed = currentConsumedFrameState(graph);
+    const nodeId = ++graph.nodeId;
+    if (graph.useSharedConsumedFrameState) {
+        const sharedBuffer = new SharedArrayBuffer(
+            Int32Array.BYTES_PER_ELEMENT * CONSUMED_FRAME_STATE_WORDS);
+        graph.consumedFrameState = new Int32Array(sharedBuffer);
+        Atomics.store(graph.consumedFrameState, 0, 0);
+        Atomics.store(graph.consumedFrameState, 1, initialConsumed.low | 0);
+        Atomics.store(graph.consumedFrameState, 2, initialConsumed.high | 0);
+    } else {
+        graph.consumedFrameState = null;
+    }
+
     const node = new AudioWorkletNode(graph.context, "naudio-block-queue-processor", {
         numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [graph.channels],
-        processorOptions: { channels: graph.channels },
+        processorOptions: {
+            channels: graph.channels,
+            nodeId,
+            consumedFrameState: graph.consumedFrameState?.buffer ?? null,
+            initialConsumedLow: initialConsumed.low | 0,
+            initialConsumedHigh: initialConsumed.high | 0,
+        },
     });
-    node.port.onmessage = (event) => onProcessorMessage(graph, event.data);
+    node.port.onmessage = (event) => onProcessorMessage(graph, nodeId, event.data);
     node.onprocessorerror = () => failGraph(
         graph,
         new Error("The AudioWorklet processor stopped because of an audio-thread error."));
@@ -158,6 +252,18 @@ export async function prepare(handle, requestedSampleRate, channels, useDeviceSa
         rejectEvent: null,
         drainResolve: null,
         drainReject: null,
+        nodeId: 0,
+        useSharedConsumedFrameState: supportsSharedConsumedFrameState(),
+        consumedFrameState: null,
+        consumedSnapshotLow: 0,
+        consumedSnapshotHigh: 0,
+        consumedBaselineLow: 0,
+        consumedBaselineHigh: 0,
+        capturedConsumedLow: 0,
+        capturedConsumedHigh: 0,
+        nextConsumedResetId: 0,
+        pendingConsumedResets: new Map(),
+        pendingStops: new Map(),
         recycledBuffers: [],
         metrics: createMetrics(),
         error: null,
@@ -285,7 +391,36 @@ function recycleBuffer(graph, buffer) {
     }
 }
 
-function onProcessorMessage(graph, message) {
+function onProcessorMessage(graph, nodeId, message) {
+    if (graph.disposed || nodeId !== graph.nodeId) {
+        return;
+    }
+
+    if (message.type === "consumed-snapshot") {
+        updateConsumedSnapshot(graph, message);
+        return;
+    }
+
+    if (message.type === "consumed-reset") {
+        updateConsumedSnapshot(graph, message);
+        const pending = graph.pendingConsumedResets.get(message.resetId);
+        if (pending) {
+            graph.pendingConsumedResets.delete(message.resetId);
+            pending.resolve();
+        }
+        return;
+    }
+
+    if (message.type === "stopped") {
+        updateConsumedSnapshot(graph, message);
+        const pending = graph.pendingStops.get(message.runId);
+        if (pending) {
+            graph.pendingStops.delete(message.runId);
+            pending.resolve();
+        }
+        return;
+    }
+
     if (message.type === "recycle") {
         recycleBuffer(graph, message.buffer);
         return;
@@ -454,17 +589,63 @@ export async function stop(handle, runId) {
         return;
     }
 
+    const stopped = new Promise((resolve, reject) => {
+        graph.pendingStops.set(runId, { resolve, reject });
+    });
     graph.node.port.postMessage({ type: "stop", runId });
     graph.runId = 0;
     resolveDemandAsStopped(graph);
     resolveEventsAsStopped(graph);
     resolveDrainAsStopped(graph);
-    await graph.context.suspend();
+    await Promise.all([stopped, graph.context.suspend()]);
 
     // A new start may have raced the suspend promise; ensure the newest run wins.
     if (graph.runId !== 0 && graph.context.state === "suspended") {
         await graph.context.resume();
     }
+}
+
+export function captureTotalConsumedFrameCountLow(handle) {
+    const graph = getGraph(handle);
+    const current = currentConsumedFrameState(graph);
+    const captured = graph.useSharedConsumedFrameState
+        ? subtractConsumedFrameState(current, {
+            low: graph.consumedBaselineLow,
+            high: graph.consumedBaselineHigh,
+        })
+        : current;
+    graph.capturedConsumedLow = captured.low;
+    graph.capturedConsumedHigh = captured.high;
+    return captured.low | 0;
+}
+
+export function getCapturedTotalConsumedFrameCountHigh(handle) {
+    return getGraph(handle).capturedConsumedHigh | 0;
+}
+
+export function resetTotalConsumed(handle) {
+    const graph = getGraph(handle);
+    if (graph.error) {
+        return Promise.reject(graph.error);
+    }
+    if (graph.disposed) {
+        return Promise.reject(new Error("The browser audio graph has been disposed."));
+    }
+
+    if (graph.useSharedConsumedFrameState) {
+        const current = currentConsumedFrameState(graph);
+        graph.consumedBaselineLow = current.low;
+        graph.consumedBaselineHigh = current.high;
+        graph.capturedConsumedLow = 0;
+        graph.capturedConsumedHigh = 0;
+        return Promise.resolve();
+    }
+
+    const resetId = ++graph.nextConsumedResetId;
+    return new Promise((resolve, reject) => {
+        graph.pendingConsumedResets.set(resetId, { resolve, reject });
+        graph.node.port.postMessage({ type: "reset-consumed", resetId });
+    });
 }
 
 export function getMetrics(handle) {

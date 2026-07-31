@@ -14,6 +14,9 @@ The package exposes:
 | `ISeekableSampleProvider` | Optional source contract used by `SeekAsync` |
 | `BrowserAudioLatencyInfo` | Actual context sample rate and browser-reported latency |
 | `BrowserAudioPlaybackMetrics` | First-frame and underrun counters for the current run |
+| `BrowserAudioWorkletPlayer.TotalConsumedFrameCount` | Synchronous cumulative output-frame count |
+| `BrowserAudioWorkletPlayer.TotalConsumedSampleCount` | Cumulative interleaved sample count |
+| `BrowserAudioWorkletPlayer.TotalConsumedTime` | Cumulative duration at the output sample rate |
 | `BrowserAudioException` | Web Audio failure reported through `PlaybackStopped` |
 
 ## Platform
@@ -139,6 +142,46 @@ The first-frame estimate includes preparation time spent after `PlayAsync` was
 requested and maps the worklet's context timestamp to the output device when the
 browser exposes `getOutputTimestamp()`. Underruns count frames emitted as silence
 while the WebAssembly main thread could not refill the queue in time.
+
+## Exact Consumption Progress
+
+The player also exposes a lightweight synchronous polling surface for the
+AudioWorklet's actual render progress:
+
+```csharp
+long frames = output.TotalConsumedFrameCount;
+long samples = output.TotalConsumedSampleCount;
+TimeSpan time = output.TotalConsumedTime;
+
+await output.ResetTotalConsumedAsync();
+```
+
+`TotalConsumedFrameCount` counts output frames copied from source blocks, not
+interleaved scalar samples. `TotalConsumedSampleCount` is the frame count times
+the output channel count, and `TotalConsumedTime` divides frames by
+`OutputWaveFormat.SampleRate` (including the device-rate/resampling path).
+Actual source silence is still copied audio and counts; queued frames and
+underrun-generated silence do not. The values stop at the AudioWorklet render
+boundary and do not include physical output-device latency.
+
+The counter is zero for a new player and is cleared only by an explicit
+`ResetTotalConsumedAsync` call. Play, pause, stop, flush, seek, and natural end
+leave it unchanged. In a cross-origin-isolated page, a `SharedArrayBuffer` and
+`Atomics` maintain a stable `sequence/low/high` snapshot while the main thread
+keeps the reset baseline. Other deployments use exact low/high messages for each
+render quantum and an acknowledged reset; synchronous getters return the last
+confirmed snapshot, not a clock-based approximation.
+
+Because a sample provider can be read ahead into the queue, applications that
+need a user-facing position should retain a start position and calculate:
+
+```text
+display position = start position + TotalConsumedTime
+```
+
+Reset the counter when starting a new run, after seeking, or when stopping if
+the next run should have a fresh position baseline. The music and sine-wave
+samples show this pattern and display frames, samples, and `TimeSpan` values.
 
 ## Other Behavior
 

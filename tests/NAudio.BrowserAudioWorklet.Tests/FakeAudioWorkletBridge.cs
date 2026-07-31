@@ -18,6 +18,7 @@ internal sealed class FakeAudioWorkletBridge : IAudioWorkletBridge
     private Action<AudioWorkletEvent> onEvent;
     private readonly List<Action<Exception>> stoppedCallbacks = new();
     private readonly List<Action<AudioWorkletEvent>> eventCallbacks = new();
+    private long totalConsumedFrameCount;
 
     public int PrepareCount { get; private set; }
     public int StartCount { get; private set; }
@@ -25,6 +26,7 @@ internal sealed class FakeAudioWorkletBridge : IAudioWorkletBridge
     public int PauseCount { get; private set; }
     public int ResumeCount { get; private set; }
     public int StopCount { get; private set; }
+    public int ResetTotalConsumedCount { get; private set; }
     public int DisposeCount { get; private set; }
     public int SampleRate { get; private set; }
     public int Channels { get; private set; }
@@ -36,6 +38,7 @@ internal sealed class FakeAudioWorkletBridge : IAudioWorkletBridge
     public float LastVolume { get; private set; } = float.NaN;
     public List<float> VolumeHistory { get; } = new();
     public bool IsStarted { get; private set; }
+    public long TotalConsumedFrameCount => totalConsumedFrameCount;
 
     /// <summary>Set to force <see cref="StartAsync"/> to fault, simulating a graph build failure.</summary>
     public Exception StartException { get; set; }
@@ -43,6 +46,7 @@ internal sealed class FakeAudioWorkletBridge : IAudioWorkletBridge
     public Exception PauseException { get; set; }
     public Exception ResumeException { get; set; }
     public Exception StopException { get; set; }
+    public Exception ResetTotalConsumedException { get; set; }
     public TaskCompletionSource<AudioWorkletPreparation> PrepareCompletion { get; set; }
     public TaskCompletionSource StartCompletion { get; set; }
     public int PreparedSampleRate { get; set; }
@@ -140,6 +144,18 @@ internal sealed class FakeAudioWorkletBridge : IAudioWorkletBridge
         return StopException is null ? Task.CompletedTask : Task.FromException(StopException);
     }
 
+    public Task ResetTotalConsumedAsync()
+    {
+        ResetTotalConsumedCount++;
+        if (ResetTotalConsumedException != null)
+        {
+            return Task.FromException(ResetTotalConsumedException);
+        }
+
+        totalConsumedFrameCount = 0;
+        return Task.CompletedTask;
+    }
+
     public void Dispose() => DisposeCount++;
 
     public Task<BrowserAudioPlaybackMetrics> GetMetricsAsync() => Task.FromResult(Metrics);
@@ -156,6 +172,17 @@ internal sealed class FakeAudioWorkletBridge : IAudioWorkletBridge
         int sampleCount = frames * Channels;
         MemoryMarshal.AsBytes(samples.AsSpan(0, sampleCount)).CopyTo(destination);
         return frames;
+    }
+
+    /// <summary>Publishes the exact audio-thread value observed by the player properties.</summary>
+    public void SetTotalConsumedFrameCount(long frameCount)
+    {
+        if (frameCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frameCount));
+        }
+
+        totalConsumedFrameCount = frameCount;
     }
 
     /// <summary>Simulates the graph stopping on its own (end of stream or error).</summary>

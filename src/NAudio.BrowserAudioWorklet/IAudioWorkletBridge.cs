@@ -85,5 +85,14 @@ internal interface IAudioWorkletBridge : IDisposable
     /// <summary>Stops pulling, clears queued samples, and suspends the persistent graph.</summary>
     Task StopAsync();
 
+    /// <summary>
+    /// Gets the cumulative number of output frames copied by the AudioWorklet since the most
+    /// recent explicit reset.
+    /// </summary>
+    long TotalConsumedFrameCount { get; }
+
+    /// <summary>Resets the cumulative AudioWorklet consumption counter.</summary>
+    Task ResetTotalConsumedAsync();
+
     Task<BrowserAudioPlaybackMetrics> GetMetricsAsync();
 }

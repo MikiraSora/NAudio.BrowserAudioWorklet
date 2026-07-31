@@ -134,6 +134,68 @@ public sealed class BrowserAudioWorkletPlayer : IWavePlayer
     /// <summary>Latest browser-reported latency information, available after preparation.</summary>
     public BrowserAudioLatencyInfo LatencyInfo { get; private set; }
 
+    /// <summary>
+    /// Gets the cumulative number of output frames actually copied from the AudioWorklet queue
+    /// since <see cref="ResetTotalConsumedAsync"/> was last called.
+    /// </summary>
+    /// <remarks>
+    /// One frame contains one sample for every output channel. Queued data and silence generated
+    /// for an underrun are not included. This is AudioWorklet render progress and does not include
+    /// the Web Audio output path's device latency.
+    /// </remarks>
+    public long TotalConsumedFrameCount
+    {
+        get
+        {
+            lock (sync)
+            {
+                ThrowIfDisposed();
+                return bridge.TotalConsumedFrameCount;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the cumulative number of interleaved output samples consumed by the AudioWorklet.
+    /// </summary>
+    public long TotalConsumedSampleCount
+    {
+        get
+        {
+            lock (sync)
+            {
+                ThrowIfDisposed();
+                if (OutputWaveFormat == null)
+                {
+                    return 0;
+                }
+
+                return checked(bridge.TotalConsumedFrameCount * OutputWaveFormat.Channels);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the cumulative consumed duration, converted with the actual output sample rate.
+    /// </summary>
+    public TimeSpan TotalConsumedTime
+    {
+        get
+        {
+            lock (sync)
+            {
+                ThrowIfDisposed();
+                if (OutputWaveFormat == null)
+                {
+                    return TimeSpan.Zero;
+                }
+
+                return TimeSpan.FromSeconds(
+                    bridge.TotalConsumedFrameCount / (double)OutputWaveFormat.SampleRate);
+            }
+        }
+    }
+
     /// <inheritdoc />
     public event EventHandler<StoppedEventArgs> PlaybackStopped;
 
@@ -535,6 +597,19 @@ public sealed class BrowserAudioWorkletPlayer : IWavePlayer
         }
 
         return bridge.GetMetricsAsync();
+    }
+
+    /// <summary>
+    /// Resets all three cumulative consumption values. Playback, pause, stop, flush, seek, and
+    /// natural end of stream otherwise preserve them.
+    /// </summary>
+    public Task ResetTotalConsumedAsync()
+    {
+        lock (sync)
+        {
+            ThrowIfDisposed();
+            return bridge.ResetTotalConsumedAsync();
+        }
     }
 
     /// <inheritdoc />

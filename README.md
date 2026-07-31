@@ -17,6 +17,8 @@ API — no Blazor, no plugins.
 - Uses the output device's native sample rate, recycled transferable blocks,
   direct `ISampleProvider` rendering, graph-preserving Seek/Flush, and
   first-frame/underrun telemetry.
+- Exposes exact AudioWorklet consumption progress in output frames, interleaved
+  samples, and output-rate `TimeSpan` values, with an explicit asynchronous reset.
 - Ships its JavaScript as static web assets: referencing the project (or the
   NuGet package) is enough — no manual `<script>` tag, no
   `AudioWorklet.addModule` call.
@@ -69,6 +71,37 @@ dotnet add package NAudio.BrowserAudioWorklet
 
 The package targets `net10.0` and `net10.0-browser`. See
 `src/NAudio.BrowserAudioWorklet/README.md` for the player API and data flow.
+
+## AudioWorklet consumption progress
+
+`BrowserAudioWorkletPlayer` reports the amount of source audio that the
+AudioWorklet has actually copied into output render quanta:
+
+```csharp
+long frames = output.TotalConsumedFrameCount;
+long samples = output.TotalConsumedSampleCount;
+TimeSpan consumed = output.TotalConsumedTime;
+await output.ResetTotalConsumedAsync();
+```
+
+Frames are output frames and do not multiply by the channel count. Samples are
+`frames * output channels`; time uses `OutputWaveFormat.SampleRate`, so it
+remains correct when `UseDeviceSampleRate` enables resampling. Copied zero-valued
+source samples count, while queued data and silence inserted for an underrun do
+not. The values describe AudioWorklet render progress and exclude Web Audio's
+physical-device output latency.
+
+Only `ResetTotalConsumedAsync` clears the counter. Play, pause, stop, flush,
+seek, and natural end preserve it. When cross-origin isolation enables
+`SharedArrayBuffer`, the processor publishes a three-word
+`sequence/low/high` atomic snapshot and the main thread applies a reset
+baseline. Without that capability, the processor sends exact low/high snapshots
+and reset acknowledgements; synchronous getters return the last confirmed
+snapshot and never interpolate from a clock.
+
+For a source position, keep an application-owned start position and calculate
+`start position + output.TotalConsumedTime`. Do not use the source/provider
+position directly: the player may have read ahead into the AudioWorklet queue.
 
 ## Deployment
 

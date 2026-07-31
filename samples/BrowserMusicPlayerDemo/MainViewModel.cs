@@ -22,7 +22,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly AsyncCommand addFolderCommand;
     private readonly AsyncCommand playCommand;
     private readonly DelegateCommand pauseCommand;
-    private readonly DelegateCommand stopCommand;
+    private readonly AsyncCommand stopCommand;
+    private readonly AsyncCommand resetConsumedCommand;
     private readonly object decodeCacheSync = new();
     private readonly Dictionary<TrackItem, Task<DecodedAudio>> decodedTracks = new();
     private readonly LinkedList<TrackItem> decodedTrackLru = new();
@@ -38,6 +39,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private double volume = 0.8;
     private double seekSeconds;
     private double durationSeconds;
+    private TimeSpan playbackPositionBase;
+    private long totalConsumedFrameCount;
+    private long totalConsumedSampleCount;
+    private TimeSpan totalConsumedTime;
     private bool busy;
     private bool hasTracks;
     private bool seekPending;
@@ -54,7 +59,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             !busy && (playbackState != PlaybackState.Playing ||
                       (selectedTrack != null && selectedTrack != currentTrack)));
         pauseCommand = new DelegateCommand(Pause, () => !busy && playbackState == PlaybackState.Playing);
-        stopCommand = new DelegateCommand(Stop, () => !busy && playbackState != PlaybackState.Stopped);
+        stopCommand = new AsyncCommand(StopAsync, () => !busy && playbackState != PlaybackState.Stopped);
+        resetConsumedCommand = new AsyncCommand(
+            ResetConsumedAsync,
+            () => !busy && player != null);
 
         positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         positionTimer.Tick += OnPositionTimerTick;
@@ -83,6 +91,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand PauseCommand => pauseCommand;
 
     public ICommand StopCommand => stopCommand;
+
+    public ICommand ResetConsumedCommand => resetConsumedCommand;
 
     public TrackItem? SelectedTrack
     {
@@ -144,6 +154,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         get => durationSeconds;
         private set => SetField(ref durationSeconds, value);
     }
+
+    public long TotalConsumedFrameCount
+    {
+        get => totalConsumedFrameCount;
+        private set => SetField(ref totalConsumedFrameCount, value);
+    }
+
+    public long TotalConsumedSampleCount
+    {
+        get => totalConsumedSampleCount;
+        private set => SetField(ref totalConsumedSampleCount, value);
+    }
+
+    public string TotalConsumedTimeText
+        => totalConsumedTime.ToString(@"hh\:mm\:ss\.fff");
 
     public void Dispose()
     {
@@ -430,9 +455,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         SetPlaybackState(PlaybackState.Paused, PlayingMessage("Paused"));
     }
 
-    private void Stop()
+    private async Task StopAsync()
     {
         seekDebounce?.Cancel();
+        Exception? resetError = null;
         if (player != null)
         {
             suppressPlaybackStopped = true;
@@ -444,6 +470,15 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 suppressPlaybackStopped = false;
             }
+
+            try
+            {
+                await player.ResetTotalConsumedAsync();
+            }
+            catch (Exception ex)
+            {
+                resetError = ex;
+            }
         }
 
         if (provider != null)
@@ -451,8 +486,36 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             provider.Position = TimeSpan.Zero;
         }
 
-        SetPlaybackState(PlaybackState.Stopped, "Stopped");
+        playbackPositionBase = TimeSpan.Zero;
+
+        SetPlaybackState(
+            PlaybackState.Stopped,
+            resetError == null
+                ? "Stopped"
+                : $"Stopped; unable to reset consumed counter: {RootMessage(resetError)}");
+        RefreshConsumed();
         UpdatePositionDisplay();
+    }
+
+    private async Task ResetConsumedAsync()
+    {
+        if (player == null)
+        {
+            return;
+        }
+
+        try
+        {
+            TimeSpan position = CurrentPlaybackPosition();
+            await player.ResetTotalConsumedAsync();
+            playbackPositionBase = position;
+            RefreshConsumed();
+            Status = "Consumed counter reset";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Unable to reset consumed counter: {RootMessage(ex)}";
+        }
     }
 
     private void ScheduleSeek(double seconds)
@@ -502,15 +565,20 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
+            TimeSpan target = position > provider.Duration ? provider.Duration : position;
             if (player != null)
             {
-                await player.SeekAsync(position);
+                await player.SeekAsync(target);
+                await player.ResetTotalConsumedAsync();
+                playbackPositionBase = target;
             }
             else
             {
-                provider.Position = position;
+                provider.Position = target;
+                playbackPositionBase = target;
             }
 
+            RefreshConsumed();
             UpdatePositionDisplay();
         }
         catch (Exception ex)
@@ -530,7 +598,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             await EnsureTrackReadyAsync(currentTrack!);
         }
 
-        await player!.PlayAsync();
+        await player!.ResetTotalConsumedAsync();
+        playbackPositionBase = provider?.Position ?? TimeSpan.Zero;
+        await player.PlayAsync();
         if (startPaused)
         {
             player.Pause();
@@ -570,6 +640,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
             DisposePlayer();
             provider = new PcmSampleProvider(decoded);
+            playbackPositionBase = TimeSpan.Zero;
             currentTrack = track;
             DurationSeconds = provider.Duration.TotalSeconds;
             UpdatePositionDisplay();
@@ -623,6 +694,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        RefreshConsumed();
+
         if (suppressPlaybackStopped)
         {
             return;
@@ -661,6 +734,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        RefreshConsumed();
         UpdatePositionDisplay();
         if (seekPending)
         {
@@ -670,7 +744,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         seekUpdateFromTimer = true;
         try
         {
-            SeekSeconds = provider.PositionFrames / (double)provider.WaveFormat.SampleRate;
+            SeekSeconds = CurrentPlaybackPosition().TotalSeconds;
         }
         finally
         {
@@ -686,9 +760,43 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        double position = provider.PositionFrames / (double)provider.WaveFormat.SampleRate;
+        double position = CurrentPlaybackPosition().TotalSeconds;
         double duration = provider.LengthFrames / (double)provider.WaveFormat.SampleRate;
         PositionText = $"{FormatTime(position)} / {FormatTime(duration)}";
+    }
+
+    private TimeSpan CurrentPlaybackPosition()
+    {
+        if (provider == null)
+        {
+            return TimeSpan.Zero;
+        }
+
+        TimeSpan position = player == null
+            ? provider.Position
+            : playbackPositionBase + player.TotalConsumedTime;
+        return position < TimeSpan.Zero
+            ? TimeSpan.Zero
+            : position > provider.Duration ? provider.Duration : position;
+    }
+
+    private void RefreshConsumed()
+    {
+        if (player == null || disposed)
+        {
+            return;
+        }
+
+        TotalConsumedFrameCount = player.TotalConsumedFrameCount;
+        TotalConsumedSampleCount = player.TotalConsumedSampleCount;
+        TimeSpan nextTime = player.TotalConsumedTime;
+        if (nextTime != totalConsumedTime)
+        {
+            totalConsumedTime = nextTime;
+            PropertyChanged?.Invoke(
+                this,
+                new PropertyChangedEventArgs(nameof(TotalConsumedTimeText)));
+        }
     }
 
     private string PlayingMessage(string verb)
@@ -719,6 +827,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         playCommand.RaiseCanExecuteChanged();
         pauseCommand.RaiseCanExecuteChanged();
         stopCommand.RaiseCanExecuteChanged();
+        resetConsumedCommand.RaiseCanExecuteChanged();
     }
 
     private static bool IsAudioFile(string name)

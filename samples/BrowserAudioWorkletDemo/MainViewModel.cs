@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Avalonia.Threading;
 using NAudio.Wave;
 using NAudio.Wave.Browser;
 using NAudio.Wave.SampleProviders;
@@ -13,11 +14,16 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly SignalGenerator signal;
     private readonly AsyncCommand playCommand;
     private readonly DelegateCommand pauseCommand;
-    private readonly DelegateCommand stopCommand;
+    private readonly AsyncCommand stopCommand;
+    private readonly AsyncCommand resetConsumedCommand;
+    private readonly DispatcherTimer consumedTimer;
     private PlaybackState playbackState;
     private string status = "Ready";
     private double frequency = 440;
     private double volume = 0.7;
+    private long totalConsumedFrameCount;
+    private long totalConsumedSampleCount;
+    private TimeSpan totalConsumedTime;
     private bool disposed;
 
     public MainViewModel()
@@ -37,7 +43,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
         playCommand = new AsyncCommand(PlayAsync, () => playbackState != PlaybackState.Playing);
         pauseCommand = new DelegateCommand(Pause, () => playbackState == PlaybackState.Playing);
-        stopCommand = new DelegateCommand(Stop, () => playbackState != PlaybackState.Stopped);
+        stopCommand = new AsyncCommand(StopAsync, () => playbackState != PlaybackState.Stopped);
+        resetConsumedCommand = new AsyncCommand(
+            ResetConsumedAsync,
+            () => !disposed);
+        consumedTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        consumedTimer.Tick += OnConsumedTimerTick;
+        consumedTimer.Start();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -47,6 +59,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand PauseCommand => pauseCommand;
 
     public ICommand StopCommand => stopCommand;
+
+    public ICommand ResetConsumedCommand => resetConsumedCommand;
 
     public string Status
     {
@@ -78,6 +92,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    public long TotalConsumedFrameCount
+    {
+        get => totalConsumedFrameCount;
+        private set => SetField(ref totalConsumedFrameCount, value);
+    }
+
+    public long TotalConsumedSampleCount
+    {
+        get => totalConsumedSampleCount;
+        private set => SetField(ref totalConsumedSampleCount, value);
+    }
+
+    public string TotalConsumedTimeText
+        => totalConsumedTime.ToString(@"hh\:mm\:ss\.fff");
+
     public void Dispose()
     {
         if (disposed)
@@ -87,6 +116,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
         disposed = true;
         player.PlaybackStopped -= OnPlaybackStopped;
+        consumedTimer.Stop();
+        consumedTimer.Tick -= OnConsumedTimerTick;
         player.Dispose();
     }
 
@@ -94,8 +125,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
+            if (playbackState != PlaybackState.Paused)
+            {
+                await player.ResetTotalConsumedAsync();
+            }
+
             await player.PlayAsync();
             SetPlaybackState(PlaybackState.Playing, "Playing");
+            RefreshConsumed();
         }
         catch (Exception ex)
         {
@@ -121,17 +158,65 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         SetPlaybackState(PlaybackState.Paused, "Paused");
     }
 
-    private void Stop()
+    private async Task StopAsync()
     {
         player.Stop();
-        SetPlaybackState(PlaybackState.Stopped, "Stopped");
+        try
+        {
+            await player.ResetTotalConsumedAsync();
+            SetPlaybackState(PlaybackState.Stopped, "Stopped");
+            RefreshConsumed();
+        }
+        catch (Exception ex)
+        {
+            SetPlaybackState(
+                PlaybackState.Stopped,
+                $"Stopped; unable to reset consumed counter: {RootMessage(ex)}");
+        }
+    }
+
+    private async Task ResetConsumedAsync()
+    {
+        try
+        {
+            await player.ResetTotalConsumedAsync();
+            RefreshConsumed();
+            Status = "Consumed counter reset";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Unable to reset consumed counter: {RootMessage(ex)}";
+        }
     }
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
+        RefreshConsumed();
         SetPlaybackState(
             PlaybackState.Stopped,
             e.Exception is null ? "Stopped" : $"Playback failed: {e.Exception.Message}");
+    }
+
+    private void OnConsumedTimerTick(object? sender, EventArgs e)
+        => RefreshConsumed();
+
+    private void RefreshConsumed()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        TotalConsumedFrameCount = player.TotalConsumedFrameCount;
+        TotalConsumedSampleCount = player.TotalConsumedSampleCount;
+        TimeSpan nextTime = player.TotalConsumedTime;
+        if (nextTime != totalConsumedTime)
+        {
+            totalConsumedTime = nextTime;
+            PropertyChanged?.Invoke(
+                this,
+                new PropertyChangedEventArgs(nameof(TotalConsumedTimeText)));
+        }
     }
 
     private void SetPlaybackState(PlaybackState value, string message)

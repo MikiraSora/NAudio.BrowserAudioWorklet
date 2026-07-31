@@ -75,6 +75,19 @@ internal sealed partial class AudioWorkletBridge
         [JSImport("stop", ModuleName)]
         public static partial Task StopAsync(int handle, int runId);
 
+        /// <summary>
+        /// Captures one stable 64-bit counter snapshot and returns its low word. The paired high
+        /// word is retained by JavaScript so the following call observes the same instant.
+        /// </summary>
+        [JSImport("captureTotalConsumedFrameCountLow", ModuleName)]
+        public static partial int CaptureTotalConsumedFrameCountLow(int handle);
+
+        [JSImport("getCapturedTotalConsumedFrameCountHigh", ModuleName)]
+        public static partial int GetCapturedTotalConsumedFrameCountHigh(int handle);
+
+        [JSImport("resetTotalConsumed", ModuleName)]
+        public static partial Task ResetTotalConsumedAsync(int handle);
+
         [JSImport("getMetrics", ModuleName)]
         public static partial JSObject GetMetrics(int handle);
 
