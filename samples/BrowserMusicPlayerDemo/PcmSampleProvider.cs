@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using NAudio.Wave.Browser;
 
 namespace BrowserMusicPlayerDemo;
 
@@ -6,7 +7,7 @@ namespace BrowserMusicPlayerDemo;
 /// A seekable <see cref="ISampleProvider"/> over a fully decoded interleaved float buffer.
 /// Position is tracked in samples so it always stays aligned to whole frames.
 /// </summary>
-internal sealed class PcmSampleProvider : ISampleProvider
+internal sealed class PcmSampleProvider : ISeekableSampleProvider
 {
     private readonly float[] samples;
     private long position;
@@ -28,18 +29,23 @@ internal sealed class PcmSampleProvider : ISampleProvider
         set => position = Math.Clamp(value, 0, LengthFrames) * WaveFormat.Channels;
     }
 
+    public TimeSpan Position
+    {
+        get => TimeSpan.FromSeconds(PositionFrames / (double)WaveFormat.SampleRate);
+        set => PositionFrames = (long)Math.Round(value.TotalSeconds * WaveFormat.SampleRate);
+    }
+
+    public TimeSpan Duration
+        => TimeSpan.FromSeconds(LengthFrames / (double)WaveFormat.SampleRate);
+
     public int Read(float[] buffer, int offset, int count)
     {
         long available = samples.Length - position;
         int toCopy = (int)Math.Min(count, Math.Max(0, available));
 
-        // Manual copy instead of Array.Copy: through the player's IWaveProvider chain this
-        // buffer can be a WaveBuffer reinterpretation whose runtime array type does not
-        // match float[], and Array.Copy rejects that on WebAssembly. Element writes do not.
-        for (int i = 0; i < toCopy; i++)
-        {
-            buffer[offset + i] = samples[position + i];
-        }
+        // The sample-provider overload passes the bridge-owned float[] directly, so Span.CopyTo
+        // can use the WebAssembly runtime's optimized bulk-memory path.
+        samples.AsSpan(checked((int)position), toCopy).CopyTo(buffer.AsSpan(offset, toCopy));
 
         position += toCopy;
         return toCopy;

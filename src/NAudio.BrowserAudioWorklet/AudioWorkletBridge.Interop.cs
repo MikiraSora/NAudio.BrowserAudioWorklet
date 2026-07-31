@@ -16,27 +16,52 @@ internal sealed partial class AudioWorkletBridge
     /// </summary>
     private static partial class Interop
     {
-        [JSImport("start", ModuleName)]
-        public static partial Task StartAsync(int handle, int sampleRate, int channels, int bufferFrameCount);
+        [JSImport("prepare", ModuleName)]
+        public static partial Task<JSObject> PrepareAsync(
+            int handle,
+            int requestedSampleRate,
+            int channels,
+            [JSMarshalAs<JSType.Boolean>] bool useDeviceSampleRate);
+
+        [JSImport("beginStart", ModuleName)]
+        public static partial void BeginStart(
+            int handle,
+            int runId,
+            int bufferFrameCount,
+            int initialBufferFrameCount,
+            double requestLeadTimeSeconds);
 
         /// <summary>
         /// Resolves when the worklet needs more audio, yielding the requested frame count, or
         /// <c>0</c> when the graph is being torn down.
         /// </summary>
         [JSImport("waitForDemand", ModuleName)]
-        public static partial Task<int> WaitForDemandAsync(int handle);
+        public static partial Task<int> WaitForDemandAsync(int handle, int runId);
 
         /// <summary>
-        /// Exposes interleaved float bytes as a memory view. JavaScript copies the view into a
-        /// transferable buffer owned by the AudioWorklet thread.
+        /// Exposes the bit-identical bytes of interleaved floats as a memory view. JavaScript copies
+        /// the view into a recycled transferable buffer owned by the AudioWorklet thread.
         /// </summary>
         [JSImport("enqueue", ModuleName)]
         public static partial void Enqueue(
-            int handle, [JSMarshalAs<JSType.MemoryView>] Span<byte> data, int frameCount);
+            int handle,
+            int runId,
+            [JSMarshalAs<JSType.MemoryView>] Span<byte> data,
+            int frameCount);
+
+        [JSImport("waitForEvent", ModuleName)]
+        public static partial Task<JSObject> WaitForEventAsync(int handle, int runId);
 
         /// <summary>Waits for the worklet to play out its buffered frames at end of stream.</summary>
         [JSImport("drain", ModuleName)]
-        public static partial Task DrainAsync(int handle);
+        public static partial Task DrainAsync(int handle, int runId);
+
+        [JSImport("flush", ModuleName)]
+        public static partial void Flush(
+            int handle,
+            int runId,
+            int bufferFrameCount,
+            int initialBufferFrameCount);
 
         [JSImport("pause", ModuleName)]
         public static partial Task PauseAsync(int handle);
@@ -48,7 +73,13 @@ internal sealed partial class AudioWorkletBridge
         public static partial void SetVolume(int handle, [JSMarshalAs<JSType.Number>] float volume);
 
         [JSImport("stop", ModuleName)]
-        public static partial Task StopAsync(int handle);
+        public static partial Task StopAsync(int handle, int runId);
+
+        [JSImport("getMetrics", ModuleName)]
+        public static partial JSObject GetMetrics(int handle);
+
+        [JSImport("disposeGraph", ModuleName)]
+        public static partial Task DisposeGraphAsync(int handle);
     }
 }
 #endif

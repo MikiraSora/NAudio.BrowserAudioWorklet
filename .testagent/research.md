@@ -38,3 +38,37 @@
 - `Span<byte>` remains the JavaScript memory-view boundary. Stable NAudio.Core
   2.3.0 supplies array-based `ISampleProvider.Read`, so the player reuses a float
   array and copies its bit-identical bytes into that Span.
+
+## 2026-07-31 Low-Latency Optimization Inventory
+
+- Public targets: preparation, latency profiles, direct `ISampleProvider` initialization,
+  device-rate output, flush/seek, first-frame events, underrun events, and metrics.
+- Bridge targets: one preparation per player, persistent context semantics, a small initial
+  transfer, run generations across flush, and a reusable managed render array.
+- JavaScript targets: persistent `AudioContext`/node, transferable block queue, returned
+  `ArrayBuffer` pool, two-stage prefill, and processor diagnostics.
+- Demo targets: decoded-track caching/prefetch and seek through the player's flush path.
+- Existing convention remains NUnit with a deterministic fake bridge; browser-only behavior is
+  validated by a browser build and live Chrome lifecycle/diagnostic checks.
+
+### Acceptance Checklist
+
+- [x] Preparation is idempotent and reports actual latency/sample rate.
+- [x] Interactive, balanced, playback, and custom buffer configurations select expected sizes.
+- [x] The first transfer is bounded independently from the full target buffer, then immediately
+  requests a second-stage fill.
+- [x] Direct `ISampleProvider` input renders without a wave-provider adapter.
+- [x] Device-rate preparation updates output format and resamples without changing pitch duration.
+- [x] Flush and seek preserve playback state and avoid a second graph start.
+- [x] First-frame and underrun diagnostics ignore stale runs and expose metrics.
+- [x] Stop preserves prepared resources while Dispose closes the bridge.
+- [x] Browser JavaScript parses, the browser target builds, and the live graph supports
+  prepare/play/pause/resume/flush/stop/replay.
+- [x] Decoder and transport `MemoryView` boundaries accept array-like views without relying on
+  TypedArray-only helpers.
+
+The live Edge measurement on the local source demo reported an estimated fresh-run
+start-to-output latency of approximately 8.6 ms. A warm replay measured approximately
+27.8 ms under automation; browser scheduling and the physical output device remain
+environment-dependent. The AudioContext/AudioWorkletNode identity stayed constant across
+stop and replay, and no application console errors were observed.

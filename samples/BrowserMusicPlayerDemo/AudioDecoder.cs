@@ -19,27 +19,50 @@ internal static partial class AudioDecoder
     private static Task? moduleLoad;
     private static int nextHandle;
 
-    public static async Task<DecodedAudio> DecodeAsync(byte[] fileBytes)
+    public static async Task<DecodedAudio> DecodeAsync(byte[] fileBytes, int fileOffset, int count)
     {
-        moduleLoad ??= JSHost.ImportAsync(ModuleName, ModuleUrl);
-        await moduleLoad;
-
-        int handle = Interlocked.Increment(ref nextHandle);
-        Interop.SetFileData(handle, fileBytes);
-        JSObject info = await Interop.DecodeAsync(handle);
+        Task load = moduleLoad ??= JSHost.ImportAsync(ModuleName, ModuleUrl);
         try
         {
+            await load;
+        }
+        catch
+        {
+            if (ReferenceEquals(moduleLoad, load))
+            {
+                moduleLoad = null;
+            }
+
+            throw;
+        }
+
+        int handle = Interlocked.Increment(ref nextHandle);
+        JSObject? info = null;
+        try
+        {
+            Interop.SetFileData(handle, fileBytes.AsSpan(fileOffset, count), count);
+            info = await Interop.DecodeAsync(handle);
             int sampleRate = info.GetPropertyAsInt32("sampleRate");
             int channels = info.GetPropertyAsInt32("channels");
             int frames = info.GetPropertyAsInt32("frames");
 
             var samples = new float[checked(frames * channels)];
             var destination = MemoryMarshal.AsBytes(samples.AsSpan());
-            int offset = 0;
-            while (offset < destination.Length)
+            int pcmOffset = 0;
+            while (pcmOffset < destination.Length)
             {
-                int chunk = Math.Min(CopyChunkBytes, destination.Length - offset);
-                offset += Interop.CopyPcm(handle, destination.Slice(offset, chunk), offset);
+                int chunk = Math.Min(CopyChunkBytes, destination.Length - pcmOffset);
+                int copied = Interop.CopyPcm(
+                    handle,
+                    destination.Slice(pcmOffset, chunk),
+                    pcmOffset);
+                if (copied != chunk)
+                {
+                    throw new InvalidOperationException(
+                        $"The browser decoder returned {copied} of {chunk} requested PCM bytes.");
+                }
+
+                pcmOffset += copied;
             }
 
             return new DecodedAudio(sampleRate, channels, frames, samples);
@@ -47,7 +70,7 @@ internal static partial class AudioDecoder
         finally
         {
             Interop.Release(handle);
-            info.Dispose();
+            info?.Dispose();
         }
     }
 
@@ -59,7 +82,9 @@ internal static partial class AudioDecoder
         /// </summary>
         [JSImport("setFileData", ModuleName)]
         public static partial void SetFileData(
-            int handle, [JSMarshalAs<JSType.MemoryView>] Span<byte> data);
+            int handle,
+            [JSMarshalAs<JSType.MemoryView>] Span<byte> data,
+            int byteLength);
 
         [JSImport("decode", ModuleName)]
         public static partial Task<JSObject> DecodeAsync(int handle);

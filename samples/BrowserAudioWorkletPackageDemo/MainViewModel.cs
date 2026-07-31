@@ -29,10 +29,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             Type = SignalGeneratorType.Sin
         };
 
-        player = new BrowserAudioWorkletPlayer();
+        player = new BrowserAudioWorkletPlayer(BrowserAudioLatencyProfile.Interactive);
         player.Init(signal);
         player.Volume = (float)volume;
         player.PlaybackStopped += OnPlaybackStopped;
+        _ = PreparePlayerAsync();
 
         playCommand = new AsyncCommand(PlayAsync, () => playbackState != PlaybackState.Playing);
         pauseCommand = new DelegateCommand(Pause, () => playbackState == PlaybackState.Playing);
@@ -98,7 +99,19 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (Exception ex)
         {
-            SetPlaybackState(PlaybackState.Stopped, $"Playback failed: {ex.Message}");
+            SetPlaybackState(PlaybackState.Stopped, $"Playback failed: {RootMessage(ex)}");
+        }
+    }
+
+    private async Task PreparePlayerAsync()
+    {
+        try
+        {
+            await player.PrepareAsync();
+        }
+        catch
+        {
+            // PlayAsync retries preparation and reports a foreground error if it still fails.
         }
     }
 
@@ -128,6 +141,16 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         playCommand.RaiseCanExecuteChanged();
         pauseCommand.RaiseCanExecuteChanged();
         stopCommand.RaiseCanExecuteChanged();
+    }
+
+    private static string RootMessage(Exception error)
+    {
+        while (error.InnerException != null)
+        {
+            error = error.InnerException;
+        }
+
+        return error.Message;
     }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

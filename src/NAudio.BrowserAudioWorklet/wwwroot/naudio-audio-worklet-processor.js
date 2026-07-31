@@ -1,122 +1,232 @@
-// Audio-thread processor for NAudio.BrowserAudioWorklet.
+// Audio-thread block queue for NAudio.BrowserAudioWorklet.
+// Transferred buffers are consumed in place and returned to the main thread for reuse.
 
-const RENDER_QUANTUM = 128;
+const DEFAULT_RENDER_QUANTUM = 128;
 
-class NAudioRingBufferProcessor extends AudioWorkletProcessor {
+class NAudioBlockQueueProcessor extends AudioWorkletProcessor {
     constructor(options) {
         super();
 
         this.channels = options.processorOptions.channels;
-        this.capacityFrames = Math.max(
-            RENDER_QUANTUM * 4,
-            Math.ceil(options.processorOptions.bufferFrameCount));
-        this.buffer = new Float32Array(this.capacityFrames * this.channels);
-        this.readIndex = 0;
-        this.writeIndex = 0;
-        this.storedSamples = 0;
-        this.lowWaterFrames = Math.floor(this.capacityFrames / 2);
+        this.chunks = [];
+        this.chunkHead = 0;
+        this.queuedSamples = 0;
+        this.capacityFrames = DEFAULT_RENDER_QUANTUM * 4;
+        this.lowWaterFrames = this.capacityFrames / 2;
         this.needOutstanding = false;
+        this.initialFillPending = false;
+        this.active = false;
         this.draining = false;
-        this.stopped = false;
+        this.disposed = false;
+        this.runId = 0;
+        this.firstFrameRendered = false;
+        this.inUnderrun = false;
+        this.currentUnderrunFrames = 0;
 
         this.port.onmessage = (event) => this.onMessage(event.data);
-        this.requestMoreIfNeeded();
     }
 
     onMessage(message) {
-        if (message.type === "samples") {
-            this.write(new Float32Array(message.buffer));
-            this.needOutstanding = false;
-        } else if (message.type === "drain") {
+        if (message.type === "start" || message.type === "flush") {
+            this.beginRun(message);
+        } else if (message.type === "samples") {
+            this.acceptSamples(message);
+        } else if (message.type === "drain" && message.runId === this.runId) {
             this.draining = true;
-        } else if (message.type === "stop") {
-            this.stopped = true;
-            this.storedSamples = 0;
+            this.needOutstanding = false;
+        } else if (message.type === "stop" && message.runId === this.runId) {
+            this.stopRun();
+        } else if (message.type === "dispose") {
+            this.stopRun();
+            this.disposed = true;
         }
     }
 
-    write(samples) {
-        if (samples.length % this.channels !== 0) {
+    beginRun(message) {
+        this.recycleAllChunks();
+        this.runId = message.runId;
+        this.capacityFrames = Math.max(
+            DEFAULT_RENDER_QUANTUM,
+            Math.ceil(message.bufferFrameCount));
+        this.lowWaterFrames = Math.floor(this.capacityFrames / 2);
+        this.needOutstanding = false;
+        this.initialFillPending = true;
+        this.active = true;
+        this.draining = false;
+        this.firstFrameRendered = false;
+        this.inUnderrun = false;
+        this.currentUnderrunFrames = 0;
+
+        if (message.requestInitialBuffer !== false) {
+            const initialFrames = Math.min(
+                this.capacityFrames,
+                Math.max(DEFAULT_RENDER_QUANTUM, Math.ceil(message.initialBufferFrameCount)));
+            this.requestFrames(initialFrames);
+        }
+    }
+
+    acceptSamples(message) {
+        if (message.runId !== this.runId || !this.active || this.draining) {
+            this.recycleBuffer(message.buffer);
+            return;
+        }
+        if (message.sampleCount % this.channels !== 0) {
             throw new Error("NAudio AudioWorklet received a partial audio frame.");
         }
-        if (samples.length > this.buffer.length - this.storedSamples) {
-            this.grow(this.storedSamples + samples.length);
-        }
 
-        const firstLength = Math.min(samples.length, this.buffer.length - this.writeIndex);
-        this.buffer.set(samples.subarray(0, firstLength), this.writeIndex);
-        if (firstLength < samples.length) {
-            this.buffer.set(samples.subarray(firstLength), 0);
+        this.chunks.push({
+            samples: new Float32Array(message.buffer, 0, message.sampleCount),
+            offset: 0,
+        });
+        this.queuedSamples += message.sampleCount;
+        this.needOutstanding = false;
+
+        // The first small block can play immediately while this second request fills the rest.
+        if (this.initialFillPending) {
+            this.initialFillPending = false;
+            const queuedFrames = this.queuedSamples / this.channels;
+            if (queuedFrames < this.capacityFrames) {
+                this.requestFrames(this.capacityFrames - queuedFrames);
+            }
+        } else {
+            this.requestMoreIfNeeded();
         }
-        this.writeIndex = (this.writeIndex + samples.length) % this.buffer.length;
-        this.storedSamples += samples.length;
     }
 
-    grow(minSamples) {
-        let newCapacity = this.buffer.length * 2;
-        while (newCapacity < minSamples) {
-            newCapacity *= 2;
-        }
+    stopRun() {
+        this.recycleAllChunks();
+        this.active = false;
+        this.draining = false;
+        this.needOutstanding = false;
+        this.initialFillPending = false;
+        this.inUnderrun = false;
+        this.currentUnderrunFrames = 0;
+        this.runId = 0;
+    }
 
-        const grown = new Float32Array(newCapacity);
-        const firstLength = Math.min(this.storedSamples, this.buffer.length - this.readIndex);
-        grown.set(this.buffer.subarray(this.readIndex, this.readIndex + firstLength), 0);
-        if (firstLength < this.storedSamples) {
-            grown.set(this.buffer.subarray(0, this.storedSamples - firstLength), firstLength);
-        }
+    recycleBuffer(buffer) {
+        this.port.postMessage({ type: "recycle", buffer }, [buffer]);
+    }
 
-        this.buffer = grown;
-        this.readIndex = 0;
-        this.writeIndex = this.storedSamples;
-        this.capacityFrames = newCapacity / this.channels;
-        this.lowWaterFrames = Math.floor(this.capacityFrames / 2);
+    recycleAllChunks() {
+        for (let index = this.chunkHead; index < this.chunks.length; index++) {
+            const chunk = this.chunks[index];
+            if (chunk?.samples?.buffer?.byteLength > 0) {
+                this.recycleBuffer(chunk.samples.buffer);
+            }
+        }
+        this.chunks.length = 0;
+        this.chunkHead = 0;
+        this.queuedSamples = 0;
+    }
+
+    recycleConsumedChunk(chunk) {
+        this.recycleBuffer(chunk.samples.buffer);
+        this.chunkHead++;
+        if (this.chunkHead >= this.chunks.length) {
+            this.chunks.length = 0;
+            this.chunkHead = 0;
+        } else if (this.chunkHead >= 8 && this.chunkHead * 2 >= this.chunks.length) {
+            this.chunks = this.chunks.slice(this.chunkHead);
+            this.chunkHead = 0;
+        }
     }
 
     process(_inputs, outputs) {
-        if (this.stopped) {
+        if (this.disposed) {
             return false;
         }
 
         const output = outputs[0];
         const frameCount = output[0].length;
+        if (!this.active) {
+            return true;
+        }
 
-        for (let frame = 0; frame < frameCount; frame++) {
-            if (this.storedSamples >= this.channels) {
-                for (let channel = 0; channel < this.channels; channel++) {
-                    output[channel][frame] = this.buffer[this.readIndex];
-                    this.readIndex = (this.readIndex + 1) % this.buffer.length;
+        let outputFrame = 0;
+        while (outputFrame < frameCount && this.queuedSamples >= this.channels) {
+            const chunk = this.chunks[this.chunkHead];
+            const availableFrames = (chunk.samples.length - chunk.offset) / this.channels;
+            const framesToCopy = Math.min(frameCount - outputFrame, availableFrames);
+
+            for (let channel = 0; channel < this.channels; channel++) {
+                let inputIndex = chunk.offset + channel;
+                const outputChannel = output[channel];
+                for (let frame = 0; frame < framesToCopy; frame++) {
+                    outputChannel[outputFrame + frame] = chunk.samples[inputIndex];
+                    inputIndex += this.channels;
                 }
-                this.storedSamples -= this.channels;
-            } else {
-                for (let channel = 0; channel < this.channels; channel++) {
-                    output[channel][frame] = 0;
-                }
+            }
+
+            const copiedSamples = framesToCopy * this.channels;
+            chunk.offset += copiedSamples;
+            this.queuedSamples -= copiedSamples;
+            outputFrame += framesToCopy;
+
+            if (chunk.offset === chunk.samples.length) {
+                this.recycleConsumedChunk(chunk);
             }
         }
 
-        this.requestMoreIfNeeded();
-        if (this.draining && this.storedSamples < this.channels) {
-            this.port.postMessage({ type: "drained" });
-            return false;
+        if (outputFrame > 0 && !this.firstFrameRendered) {
+            this.firstFrameRendered = true;
+            this.port.postMessage({
+                type: "first-frame",
+                runId: this.runId,
+                contextTime: currentTime,
+            });
         }
 
+        if (!this.draining && outputFrame < frameCount) {
+            if (!this.inUnderrun) {
+                this.inUnderrun = true;
+                this.currentUnderrunFrames = 0;
+            }
+            this.currentUnderrunFrames += frameCount - outputFrame;
+        } else if (this.inUnderrun) {
+            this.port.postMessage({
+                type: "underrun",
+                runId: this.runId,
+                frames: this.currentUnderrunFrames,
+            });
+            this.inUnderrun = false;
+            this.currentUnderrunFrames = 0;
+        }
+
+        this.requestMoreIfNeeded();
+        if (this.draining && this.queuedSamples < this.channels) {
+            this.port.postMessage({ type: "drained", runId: this.runId });
+            this.active = false;
+            this.draining = false;
+        }
+
+        // Output arrays are zero-initialized by Web Audio, so unfilled frames already contain silence.
         return true;
     }
 
-    requestMoreIfNeeded() {
-        if (this.needOutstanding || this.draining || this.stopped) {
+    requestFrames(frames) {
+        if (this.needOutstanding || this.draining || !this.active) {
             return;
         }
 
-        const storedFrames = this.storedSamples / this.channels;
-        if (storedFrames < this.lowWaterFrames) {
-            this.needOutstanding = true;
-            this.port.postMessage({
-                type: "need",
-                frames: this.capacityFrames - storedFrames,
-            });
+        this.needOutstanding = true;
+        this.port.postMessage({
+            type: "need",
+            runId: this.runId,
+            frames,
+        });
+    }
+
+    requestMoreIfNeeded() {
+        if (this.needOutstanding || this.draining || !this.active) {
+            return;
+        }
+
+        const queuedFrames = this.queuedSamples / this.channels;
+        if (queuedFrames < this.lowWaterFrames) {
+            this.requestFrames(this.capacityFrames - queuedFrames);
         }
     }
 }
 
-registerProcessor("naudio-ring-buffer-processor", NAudioRingBufferProcessor);
+registerProcessor("naudio-block-queue-processor", NAudioBlockQueueProcessor);

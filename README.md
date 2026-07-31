@@ -12,11 +12,16 @@ API — no Blazor, no plugins.
 - Implements an NAudio `IWavePlayer`-style player backed by a real
   AudioWorklet node, so buffered PCM playback, pause/resume, volume and
   position all work from C#.
+- Prepares and reuses one browser audio graph, primes the first block before
+  resume, and offers 20/80/250 ms latency profiles.
+- Uses the output device's native sample rate, recycled transferable blocks,
+  direct `ISampleProvider` rendering, graph-preserving Seek/Flush, and
+  first-frame/underrun telemetry.
 - Ships its JavaScript as static web assets: referencing the project (or the
   NuGet package) is enough — no manual `<script>` tag, no
   `AudioWorklet.addModule` call.
 - Decodes compressed audio (mp3/ogg/wav) using the browser's built-in
-  `AudioContext.decodeAudioData`, shown in the music player demo.
+  `decodeAudioData`, with selected/next-track prefetch in the music player demo.
 
 ## Repository layout
 
@@ -46,6 +51,7 @@ Build and test everything:
 ```powershell
 dotnet build .\NAudio.BrowserAudioWorklet.slnx -c Release
 dotnet test --project .\tests\NAudio.BrowserAudioWorklet.Tests\NAudio.BrowserAudioWorklet.Tests.csproj -c Release
+node --test .\tests\javascript\*.test.mjs
 ```
 
 Validate the NuGet package end-to-end (pack → restore → publish the

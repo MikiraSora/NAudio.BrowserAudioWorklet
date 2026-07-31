@@ -36,7 +36,7 @@ public class BrowserAudioWorkletPlayerTests
     {
         using var player = CreatePlayer(new FakeAudioWorkletBridge());
 
-        Assert.Throws<ArgumentNullException>(() => player.Init(null));
+        Assert.Throws<ArgumentNullException>(() => player.Init((IWaveProvider)null));
     }
 
     [Test]
@@ -92,6 +92,7 @@ public class BrowserAudioWorkletPlayerTests
         Assert.That(bridge.SampleRate, Is.EqualTo(48000));
         Assert.That(bridge.Channels, Is.EqualTo(2));
         Assert.That(bridge.BufferFrameCount, Is.EqualTo(12000));
+        Assert.That(bridge.InitialBufferFrameCount, Is.EqualTo(512));
     }
 
     [Test]

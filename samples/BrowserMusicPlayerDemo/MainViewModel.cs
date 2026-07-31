@@ -13,6 +13,7 @@ namespace BrowserMusicPlayerDemo;
 public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private const int SeekDebounceMilliseconds = 200;
+    private const int DecodedTrackCacheSize = 2;
 
     private static readonly string[] AudioExtensions = [".mp3", ".ogg", ".wav"];
 
@@ -22,6 +23,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly AsyncCommand playCommand;
     private readonly DelegateCommand pauseCommand;
     private readonly DelegateCommand stopCommand;
+    private readonly object decodeCacheSync = new();
+    private readonly Dictionary<TrackItem, Task<DecodedAudio>> decodedTracks = new();
+    private readonly LinkedList<TrackItem> decodedTrackLru = new();
+    private readonly SemaphoreSlim trackChangeLock = new(1, 1);
 
     private BrowserAudioWorkletPlayer? player;
     private PcmSampleProvider? provider;
@@ -37,6 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool hasTracks;
     private bool seekPending;
     private bool seekUpdateFromTimer;
+    private bool suppressPlaybackStopped;
     private CancellationTokenSource? seekDebounce;
     private bool disposed;
 
@@ -85,6 +91,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             if (SetField(ref selectedTrack, value))
             {
+                PrefetchTrack(value);
                 RefreshCommands();
             }
         }
@@ -150,6 +157,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         positionTimer.Tick -= OnPositionTimerTick;
         seekDebounce?.Cancel();
         DisposePlayer();
+        lock (decodeCacheSync)
+        {
+            decodedTracks.Clear();
+            decodedTrackLru.Clear();
+        }
     }
 
     private async Task AddFilesAsync()
@@ -272,13 +284,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
             if (track == currentTrack && provider != null)
             {
-                // Same track already decoded: replay it from the start.
+                // Same track already decoded: reuse the prepared graph and current position.
                 SetBusy(true);
                 try
                 {
-                    provider.PositionFrames = 0;
                     await StartNewRunAsync(false);
                     SetPlaybackState(PlaybackState.Playing, PlayingMessage("Playing"));
+                    PrefetchNextTrack();
                 }
                 finally
                 {
@@ -301,14 +313,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         SetBusy(true, $"Loading {track.Name}...");
         try
         {
-            var decoded = await DecodeTrackAsync(track);
             seekDebounce?.Cancel();
-            DisposePlayer();
-            provider = new PcmSampleProvider(decoded);
-            currentTrack = track;
-            DurationSeconds = provider.LengthFrames / (double)provider.WaveFormat.SampleRate;
+            await EnsureTrackReadyAsync(track);
             await StartNewRunAsync(false);
             SetPlaybackState(PlaybackState.Playing, PlayingMessage("Playing"));
+            PrefetchNextTrack();
         }
         catch (Exception ex)
         {
@@ -320,12 +329,98 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private static async Task<DecodedAudio> DecodeTrackAsync(TrackItem track)
+    private Task<DecodedAudio> DecodeTrackAsync(TrackItem track)
+    {
+        Task<DecodedAudio> decodeTask;
+        lock (decodeCacheSync)
+        {
+            if (!decodedTracks.TryGetValue(track, out decodeTask!))
+            {
+                decodeTask = DecodeTrackCoreAsync(track);
+                decodedTracks.Add(track, decodeTask);
+            }
+
+            decodedTrackLru.Remove(track);
+            decodedTrackLru.AddFirst(track);
+            while (decodedTrackLru.Count > DecodedTrackCacheSize)
+            {
+                TrackItem expired = decodedTrackLru.Last!.Value;
+                decodedTrackLru.RemoveLast();
+                decodedTracks.Remove(expired);
+            }
+        }
+
+        return ObserveDecodeAsync(track, decodeTask);
+    }
+
+    private async Task<DecodedAudio> ObserveDecodeAsync(
+        TrackItem track,
+        Task<DecodedAudio> decodeTask)
+    {
+        try
+        {
+            return await decodeTask;
+        }
+        catch
+        {
+            lock (decodeCacheSync)
+            {
+                if (decodedTracks.TryGetValue(track, out Task<DecodedAudio>? cached) &&
+                    ReferenceEquals(cached, decodeTask))
+                {
+                    decodedTracks.Remove(track);
+                    decodedTrackLru.Remove(track);
+                }
+            }
+
+            throw;
+        }
+    }
+
+    private static async Task<DecodedAudio> DecodeTrackCoreAsync(TrackItem track)
     {
         await using var stream = await track.File.OpenReadAsync();
-        using var memory = new MemoryStream();
+        int capacity = stream.CanSeek && stream.Length <= int.MaxValue
+            ? checked((int)stream.Length)
+            : 0;
+        using var memory = capacity > 0 ? new MemoryStream(capacity) : new MemoryStream();
         await stream.CopyToAsync(memory);
-        return await AudioDecoder.DecodeAsync(memory.ToArray());
+        if (!memory.TryGetBuffer(out ArraySegment<byte> fileBytes) || fileBytes.Array == null)
+        {
+            return await AudioDecoder.DecodeAsync(memory.ToArray(), 0, checked((int)memory.Length));
+        }
+
+        return await AudioDecoder.DecodeAsync(
+            fileBytes.Array,
+            fileBytes.Offset,
+            checked((int)memory.Length));
+    }
+
+    private void PrefetchTrack(TrackItem? track)
+    {
+        if (track != null)
+        {
+            _ = PrefetchTrackAsync(track);
+        }
+    }
+
+    private async Task PrefetchTrackAsync(TrackItem track)
+    {
+        try
+        {
+            DecodedAudio decoded = await DecodeTrackAsync(track);
+            await EnsureTrackReadyAsync(track, decoded, preloadOnly: true);
+        }
+        catch
+        {
+            // Prefetch is opportunistic. A foreground play reports decode/preparation errors.
+        }
+    }
+
+    private void PrefetchNextTrack()
+    {
+        int index = currentTrack == null ? -1 : Playlist.IndexOf(currentTrack);
+        PrefetchTrack(index >= 0 && index + 1 < Playlist.Count ? Playlist[index + 1] : null);
     }
 
     private void Pause()
@@ -338,10 +433,22 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void Stop()
     {
         seekDebounce?.Cancel();
-        DisposePlayer();
+        if (player != null)
+        {
+            suppressPlaybackStopped = true;
+            try
+            {
+                player.Stop();
+            }
+            finally
+            {
+                suppressPlaybackStopped = false;
+            }
+        }
+
         if (provider != null)
         {
-            provider.PositionFrames = 0;
+            provider.Position = TimeSpan.Zero;
         }
 
         SetPlaybackState(PlaybackState.Stopped, "Stopped");
@@ -393,22 +500,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        provider.PositionFrames = (long)Math.Round(position.TotalSeconds * provider.WaveFormat.SampleRate);
-        UpdatePositionDisplay();
-        if (playbackState == PlaybackState.Stopped)
-        {
-            return;
-        }
-
-        // The AudioWorklet ring buffer is fed ahead of time and has no flush, so a seek
-        // during playback restarts the graph from the new position instead.
-        bool resume = playbackState == PlaybackState.Playing;
         try
         {
-            await StartNewRunAsync(!resume);
-            SetPlaybackState(
-                resume ? PlaybackState.Playing : PlaybackState.Paused,
-                PlayingMessage(resume ? "Playing" : "Paused"));
+            if (player != null)
+            {
+                await player.SeekAsync(position);
+            }
+            else
+            {
+                provider.Position = position;
+            }
+
+            UpdatePositionDisplay();
         }
         catch (Exception ex)
         {
@@ -417,23 +520,84 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Starts a fresh playback run for the current provider position. The library only
-    /// accepts one Init per player, so every run (track change or seek) gets a new
-    /// player; the old graph is torn down first.
+    /// Starts or resumes playback for the current provider position. Stops and seeks retain
+    /// the prepared AudioContext and AudioWorkletNode; only a track-format change replaces them.
     /// </summary>
     private async Task StartNewRunAsync(bool startPaused)
     {
-        DisposePlayer();
+        if (player == null)
+        {
+            await EnsureTrackReadyAsync(currentTrack!);
+        }
 
-        var next = new BrowserAudioWorkletPlayer();
-        next.PlaybackStopped += OnPlaybackStopped;
-        next.Init(provider!);
-        next.Volume = (float)volume;
-        player = next;
-        await next.PlayAsync();
+        await player!.PlayAsync();
         if (startPaused)
         {
-            next.Pause();
+            player.Pause();
+        }
+    }
+
+    private async Task EnsureTrackReadyAsync(
+        TrackItem track,
+        DecodedAudio? prefetched = null,
+        bool preloadOnly = false)
+    {
+        await trackChangeLock.WaitAsync();
+        try
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            if (currentTrack == track && provider != null && player != null)
+            {
+                return;
+            }
+
+            if (preloadOnly &&
+                (selectedTrack != track || playbackState != PlaybackState.Stopped))
+            {
+                return;
+            }
+
+            DecodedAudio decoded = prefetched ?? await DecodeTrackAsync(track);
+            if (preloadOnly &&
+                (selectedTrack != track || playbackState != PlaybackState.Stopped))
+            {
+                return;
+            }
+
+            DisposePlayer();
+            provider = new PcmSampleProvider(decoded);
+            currentTrack = track;
+            DurationSeconds = provider.Duration.TotalSeconds;
+            UpdatePositionDisplay();
+
+            var next = new BrowserAudioWorkletPlayer(BrowserAudioLatencyProfile.Balanced);
+            next.PlaybackStopped += OnPlaybackStopped;
+            next.Init(provider);
+            next.Volume = (float)volume;
+            player = next;
+            try
+            {
+                await next.PrepareAsync();
+            }
+            catch
+            {
+                next.PlaybackStopped -= OnPlaybackStopped;
+                next.Dispose();
+                if (ReferenceEquals(player, next))
+                {
+                    player = null;
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            trackChangeLock.Release();
         }
     }
 
@@ -455,6 +619,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
         if (!ReferenceEquals(sender, player))
+        {
+            return;
+        }
+
+        if (suppressPlaybackStopped)
         {
             return;
         }

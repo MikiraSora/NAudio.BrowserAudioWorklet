@@ -1,25 +1,27 @@
 # NAudio.BrowserAudioWorklet
 
-`NAudio.BrowserAudioWorklet` adds browser audio output to NAudio through
-the Web Audio `AudioWorklet` API. It is intended for Avalonia Browser applications
-and also works in other .NET WebAssembly applications.
+`NAudio.BrowserAudioWorklet` adds browser audio output to NAudio through the Web
+Audio `AudioWorklet` API. It is intended for Avalonia Browser applications and
+also works in other .NET WebAssembly applications.
 
 The package exposes:
 
 | Type | Role |
 | --- | --- |
-| `BrowserAudioWorkletPlayer` | An `IWavePlayer` that plays any supported NAudio `IWaveProvider` |
-| `BrowserAudioException` | A Web Audio failure reported through `PlaybackStopped` |
-
-NAudio names its playback interface `IWavePlayer`; there is no `IAudioPlayer`
-interface in NAudio.Core.
+| `BrowserAudioWorkletPlayer` | Persistent browser `IWavePlayer` for `IWaveProvider` and `ISampleProvider` sources |
+| `BrowserAudioWorkletOptions` | Explicit target-buffer, first-block, and device-rate settings |
+| `BrowserAudioLatencyProfile` | `Interactive`, `Balanced`, and `Playback` presets |
+| `ISeekableSampleProvider` | Optional source contract used by `SeekAsync` |
+| `BrowserAudioLatencyInfo` | Actual context sample rate and browser-reported latency |
+| `BrowserAudioPlaybackMetrics` | First-frame and underrun counters for the current run |
+| `BrowserAudioException` | Web Audio failure reported through `PlaybackStopped` |
 
 ## Platform
 
 The real output backend targets `net10.0-browser`. The package also contains a
-`net10.0` target so code can reference the type and its state machine can be tested
-outside a browser. Calling a public player constructor outside WebAssembly throws
-`PlatformNotSupportedException`.
+`net10.0` target so code can reference the type and its state machine can be
+tested outside a browser. Calling a public player constructor outside WebAssembly
+throws `PlatformNotSupportedException`.
 
 The package carries both JavaScript modules as static web assets. A consuming
 WebAssembly application publishes them automatically under:
@@ -37,74 +39,117 @@ dotnet add package NAudio.BrowserAudioWorklet
 ## Data Flow
 
 ```text
-IWaveProvider
-    -> ISampleProvider (interleaved Float32)
-    -> BrowserAudioWorkletPlayer
-    -> [JSImport] main-thread transport
-    -> transferable ArrayBuffer messages
-    -> AudioWorkletProcessor ring buffer
+IWaveProvider or ISampleProvider
+    -> interleaved Float32 (device-rate resampling when needed)
+    -> reusable managed render array
+    -> one copy into a recycled transferable ArrayBuffer
+    -> AudioWorkletProcessor block queue
     -> GainNode
     -> speakers
 ```
 
-The processor asks for more frames when its ring buffer crosses a low-water mark.
-Managed code reads only that demand from the source, converts supported PCM or IEEE
-floating-point input to interleaved 32-bit floating-point samples, and transfers the
-rendered bytes to the audio thread. End of stream drains queued samples before the
-Web Audio graph is closed.
+The player writes a small first block directly into the transport before
+`AudioContext.resume()`. The processor can therefore render source audio on its
+first quantum while the remaining target buffer is filled in the background.
+Transferred buffers are consumed in place on the audio thread and returned to a
+small main-thread pool instead of being allocated for every request.
 
-## Usage
+## Low-Latency Usage
 
-Create and initialize the player once. Call `PlayAsync` directly from a click or tap
-handler so `AudioContext.resume()` remains associated with the browser's user
-activation:
+Initialize once and prepare as early as practical. Call `PlayAsync` directly from
+the click or tap handler so `AudioContext.resume()` retains user activation.
 
 ```csharp
-using NAudio.Wave;
 using NAudio.Wave.Browser;
 
-await using var stream = await OpenWaveStreamAsync();
-using var reader = new WaveFileReader(stream);
-using var output = new BrowserAudioWorkletPlayer();
+using var output = new BrowserAudioWorkletPlayer(
+    BrowserAudioLatencyProfile.Interactive);
 
-output.Init(reader);
-output.PlaybackStopped += (_, args) =>
-{
-    if (args.Exception is not null)
-    {
-        Console.Error.WriteLine(args.Exception.Message);
-    }
-};
+output.Init(sampleProvider); // Direct ISampleProvider path avoids adapter copies.
+BrowserAudioLatencyInfo latency = await output.PrepareAsync();
 
-await output.PlayAsync();
+playButton.Click += async (_, _) => await output.PlayAsync();
 ```
 
-`Play()` remains available through `IWavePlayer`; it starts the same asynchronous
-operation and reports startup failure through `PlaybackStopped`. Prefer `PlayAsync`
-when the caller can await it.
+The profiles select these target queue durations:
 
-The constructor accepts an optional target buffer duration in milliseconds:
+| Profile | Target | Intended use |
+| --- | ---: | --- |
+| `Interactive` | 20 ms | Effects, instruments, games, and immediate controls |
+| `Balanced` | 80 ms | Responsive media playback with moderate stall tolerance |
+| `Playback` | 250 ms | Music playback where uninterrupted output is preferred |
+
+The default constructor uses `Playback`. Startup is still two-stage, so the full
+250 ms queue is not filled before the first sound. Use `Interactive` or `Balanced`
+when source changes and seeks must become audible sooner.
+
+For explicit control:
 
 ```csharp
-using var output = new BrowserAudioWorkletPlayer(bufferDurationMilliseconds: 100);
+using var output = new BrowserAudioWorkletPlayer(new BrowserAudioWorkletOptions
+{
+    BufferDurationMilliseconds = 40,
+    InitialBufferFrameCount = 512,
+    UseDeviceSampleRate = true,
+});
 ```
 
-The allowed range is 20 to 5000 ms and the default is 250 ms. Larger buffers better
-tolerate main-thread stalls; smaller buffers reduce queued audio and memory use.
+The buffer duration range is 20 to 5000 ms and the first block range is 128 to
+8192 frames. `UseDeviceSampleRate` defaults to `true`; the browser chooses the
+output device's native rate and NAudio resamples the source only when required,
+avoiding a second browser output resampler.
 
-## Behavior
+## Seek And Lifecycle
 
-- `Pause()` suspends the `AudioContext`; `PlayAsync()` resumes the existing graph.
-- `Stop()` closes the current graph and raises `PlaybackStopped` with no exception.
-- Natural end of stream drains buffered frames, closes the graph, and raises
+Sources that implement `ISeekableSampleProvider` can seek without rebuilding the
+audio graph:
+
+```csharp
+await output.SeekAsync(TimeSpan.FromSeconds(30));
+```
+
+`SeekAsync` changes the source position and flushes queued worklet blocks. The
+current playing or paused state is preserved. `FlushAsync` is also available when
+the application moves a source by another mechanism.
+
+- `Pause()` suspends the context; `PlayAsync()` resumes the existing run.
+- `Stop()` clears the current run and suspends the prepared context.
+- A later `PlayAsync()` reuses the same `AudioContext` and `AudioWorkletNode`.
+- Natural end of stream drains queued frames, suspends the graph, and raises
   `PlaybackStopped` once.
-- Web Audio and interop failures are reported as `BrowserAudioException` through
-  `PlaybackStopped`. `PlayAsync()` also faults when graph creation or an explicit
-  resume from `Paused` fails.
-- `Volume` accepts values from `0.0` to `1.0` and updates a Web Audio `GainNode`, so
-  already-buffered samples respond immediately.
-- Web Audio supports at most 32 channels; initialization rejects wider sources.
-- Compressed formats still require a browser-compatible managed decoder. Windows-only
-  Media Foundation readers are not available in WebAssembly.
+- `Dispose()` is the operation that closes the persistent `AudioContext`.
 
-See `samples/BrowserAudioWorkletDemo` for a runnable Avalonia Browser application.
+## Diagnostics
+
+`PrepareAsync` returns the actual output sample rate, base latency, output
+latency, and target frame capacity. Runtime diagnostics are available through:
+
+```csharp
+output.FirstFrameRendered += (_, e) =>
+    Console.WriteLine($"Estimated click-to-output: " +
+        $"{e.EstimatedStartToOutputLatencySeconds * 1000:F1} ms");
+
+output.BufferUnderrun += (_, e) =>
+    Console.WriteLine($"Missing frames: {e.MissingFrames}");
+
+BrowserAudioPlaybackMetrics metrics = await output.GetPlaybackMetricsAsync();
+```
+
+The first-frame estimate includes preparation time spent after `PlayAsync` was
+requested and maps the worklet's context timestamp to the output device when the
+browser exposes `getOutputTimestamp()`. Underruns count frames emitted as silence
+while the WebAssembly main thread could not refill the queue in time.
+
+## Other Behavior
+
+- `Volume` accepts `0.0` to `1.0` and updates a Web Audio `GainNode`, so queued
+  samples respond immediately.
+- Web Audio supports at most 32 channels; wider sources are rejected.
+- Web Audio and interop failures are wrapped in `BrowserAudioException` for
+  `PlaybackStopped`. `PlayAsync` also faults for startup and resume failures.
+- Compressed formats still need a browser-compatible decoder. The music sample
+  uses `decodeAudioData`, caches selected/next tracks, and reuses the graph for
+  Stop/replay and Seek.
+
+See `samples/BrowserAudioWorkletDemo` and `samples/BrowserMusicPlayerDemo` for
+runnable Avalonia Browser applications.
